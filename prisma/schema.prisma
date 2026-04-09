@@ -1,0 +1,156 @@
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ──────────────────────────────────────────────────────────────────
+// ENUMS
+// ──────────────────────────────────────────────────────────────────
+
+enum SpecificationStatus {
+  DRAFT
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum AIAction {
+  VENTILATE
+  GENERATE
+  MODIFY
+  DELETE
+}
+
+// ──────────────────────────────────────────────────────────────────
+// MODELES DE SPECIFICATION (Templates)
+// ──────────────────────────────────────────────────────────────────
+
+model WakaSpecTemplate {
+  id              Int      @id @default(autoincrement())
+  wid             String   @unique @default(uuid())
+  title           String   @db.VarChar(100)
+  userDescription String   @map("user_description") @db.Text
+  docDescription  String   @map("doc_description") @db.Text
+  megaPrompt      String   @map("mega_prompt") @db.Text
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  createdBy       String   @map("created_by")
+
+  chapters       WakaSpecTemplateChapter[]
+  specifications WakaSpecification[]
+
+  @@map("waka_spec_template")
+}
+
+model WakaSpecTemplateChapter {
+  id              Int      @id @default(autoincrement())
+  wid             String   @unique @default(uuid())
+  templateId      Int      @map("template_id")
+  title           String   @db.VarChar(40)
+  userDescription String?  @map("user_description") @db.Text
+  docDescription  String?  @map("doc_description") @db.Text
+  prompt          String   @db.Text
+  order           Int
+  isVariable      Boolean  @default(false) @map("is_variable")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  template      WakaSpecTemplate             @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  subChaptersL1 WakaSpecTemplateSubChapterL1[]
+
+  @@map("waka_spec_template_chapter")
+}
+
+model WakaSpecTemplateSubChapterL1 {
+  id         Int      @id @default(autoincrement())
+  wid        String   @unique @default(uuid())
+  chapterId  Int      @map("chapter_id")
+  title      String   @db.Text
+  order      Int
+  isVariable Boolean  @default(false) @map("is_variable")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  chapter       WakaSpecTemplateChapter          @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  subChaptersL2 WakaSpecTemplateSubChapterL2[]
+
+  @@map("waka_spec_template_sub_chapter_l1")
+}
+
+model WakaSpecTemplateSubChapterL2 {
+  id             Int      @id @default(autoincrement())
+  wid            String   @unique @default(uuid())
+  subChapterL1Id Int      @map("sub_chapter_l1_id")
+  title          String   @db.VarChar(25)
+  order          Int
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  subChapterL1 WakaSpecTemplateSubChapterL1 @relation(fields: [subChapterL1Id], references: [id], onDelete: Cascade)
+
+  @@map("waka_spec_template_sub_chapter_l2")
+}
+
+// ──────────────────────────────────────────────────────────────────
+// SPECIFICATIONS (Instances editeur)
+// ──────────────────────────────────────────────────────────────────
+
+model WakaSpecification {
+  id             Int                 @id @default(autoincrement())
+  wid            String              @unique @default(uuid())
+  templateId     Int                 @map("template_id")
+  projectId      String              @map("project_id")
+  stepId         String?             @map("step_id")
+  name           String
+  status         SpecificationStatus @default(DRAFT)
+  globalProgress Int                 @default(0) @map("global_progress")
+  initialText    String?             @map("initial_text") @db.Text
+  version        Int                 @default(1)
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+  createdBy      String              @map("created_by")
+  updatedBy      String?             @map("updated_by")
+
+  template WakaSpecTemplate        @relation(fields: [templateId], references: [id])
+  chapters WakaSpecChapterContent[]
+  aiHistory WakaSpecAIHistory[]
+
+  @@map("waka_specification")
+}
+
+model WakaSpecChapterContent {
+  id              Int      @id @default(autoincrement())
+  wid             String   @unique @default(uuid())
+  specificationId Int      @map("specification_id")
+  chapterWid      String   @map("chapter_wid")
+  chapterTitle    String   @map("chapter_title")
+  chapterOrder    Int      @map("chapter_order")
+  content         String?  @db.Text
+  progress        Int      @default(0)
+  isAutoSaved     Boolean  @default(false) @map("is_auto_saved")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  specification WakaSpecification @relation(fields: [specificationId], references: [id], onDelete: Cascade)
+
+  @@map("waka_spec_chapter_content")
+}
+
+model WakaSpecAIHistory {
+  id              Int      @id @default(autoincrement())
+  specificationId Int      @map("specification_id")
+  chapterWid      String?  @map("chapter_wid")
+  action          AIAction
+  userInstruction String?  @map("user_instruction") @db.Text
+  aiResponse      String?  @map("ai_response") @db.Text
+  createdAt       DateTime @default(now()) @map("created_at")
+  userId          String   @map("user_id")
+
+  specification WakaSpecification @relation(fields: [specificationId], references: [id], onDelete: Cascade)
+
+  @@map("waka_spec_ai_history")
+}
