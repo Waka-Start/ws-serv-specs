@@ -308,17 +308,22 @@ export class AiService {
   ): Promise<string> {
     this.logger.debug(`Calling Claude model ${this.model}`);
 
-    const response = await this.anthropic.messages.create({
-      model: this.model,
-      max_tokens: 4096,
-      system,
-      messages: [{ role: 'user', content: userMessage }],
-    });
+    try {
+      const response = await this.anthropic.messages.create({
+        model: this.model,
+        max_tokens: 4096,
+        system,
+        messages: [{ role: 'user', content: userMessage }],
+      });
 
-    const textBlock = response.content.find(
-      (b): b is Anthropic.TextBlock => b.type === 'text',
-    );
-    return textBlock?.text ?? '';
+      const textBlock = response.content.find(
+        (b): b is Anthropic.TextBlock => b.type === 'text',
+      );
+      return textBlock?.text ?? '';
+    } catch (error) {
+      this.logger.error(`Claude API error: ${error}`);
+      throw error;
+    }
   }
 
   private async recalculateProgress(specificationId: number): Promise<void> {

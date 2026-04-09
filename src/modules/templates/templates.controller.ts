@@ -96,7 +96,7 @@ export class TemplatesController {
 
   // ── Sub-Chapters L1 ──────────────────────────────────────────
 
-  @Post('chapters/:chapterWid/sub-chapters-l1')
+  @Post(':wid/chapters/:chapterWid/subchapters')
   @ApiOperation({ summary: 'Ajouter un sous-chapitre L1 a un chapitre' })
   addSubChapterL1(
     @Param('chapterWid') chapterWid: string,
@@ -105,7 +105,7 @@ export class TemplatesController {
     return this.templatesService.addSubChapterL1(chapterWid, dto);
   }
 
-  @Patch('sub-chapters-l1/:scWid')
+  @Patch(':wid/chapters/:chapterWid/subchapters/:scWid')
   @ApiOperation({ summary: 'Mettre a jour un sous-chapitre L1' })
   updateSubChapterL1(
     @Param('scWid') scWid: string,
@@ -114,7 +114,7 @@ export class TemplatesController {
     return this.templatesService.updateSubChapterL1(scWid, dto);
   }
 
-  @Delete('sub-chapters-l1/:scWid')
+  @Delete(':wid/chapters/:chapterWid/subchapters/:scWid')
   @ApiOperation({ summary: 'Supprimer un sous-chapitre L1' })
   deleteSubChapterL1(@Param('scWid') scWid: string) {
     return this.templatesService.deleteSubChapterL1(scWid);
@@ -122,16 +122,16 @@ export class TemplatesController {
 
   // ── Sub-Chapters L2 ──────────────────────────────────────────
 
-  @Post('sub-chapters-l1/:scL1Wid/sub-chapters-l2')
+  @Post(':wid/chapters/:chapterWid/subchapters/:scWid/subchapters')
   @ApiOperation({ summary: 'Ajouter un sous-chapitre L2 a un sous-chapitre L1' })
   addSubChapterL2(
-    @Param('scL1Wid') scL1Wid: string,
+    @Param('scWid') scWid: string,
     @Body() dto: CreateSubChapterL2Dto,
   ) {
-    return this.templatesService.addSubChapterL2(scL1Wid, dto);
+    return this.templatesService.addSubChapterL2(scWid, dto);
   }
 
-  @Patch('sub-chapters-l2/:sc2Wid')
+  @Patch(':wid/chapters/:chapterWid/subchapters/:scWid/subchapters/:sc2Wid')
   @ApiOperation({ summary: 'Mettre a jour un sous-chapitre L2' })
   updateSubChapterL2(
     @Param('sc2Wid') sc2Wid: string,
@@ -140,7 +140,7 @@ export class TemplatesController {
     return this.templatesService.updateSubChapterL2(sc2Wid, dto);
   }
 
-  @Delete('sub-chapters-l2/:sc2Wid')
+  @Delete(':wid/chapters/:chapterWid/subchapters/:scWid/subchapters/:sc2Wid')
   @ApiOperation({ summary: 'Supprimer un sous-chapitre L2' })
   deleteSubChapterL2(@Param('sc2Wid') sc2Wid: string) {
     return this.templatesService.deleteSubChapterL2(sc2Wid);
