@@ -6,6 +6,7 @@ import { VentilateDto } from './dto/ventilate.dto.js';
 import { GenerateChapterDto } from './dto/generate-chapter.dto.js';
 import { ModifyContentDto } from './dto/modify-content.dto.js';
 import { DeleteContentDto } from './dto/delete-content.dto.js';
+import { TestPromptDto } from './dto/test-prompt.dto.js';
 
 @Controller('ai')
 @ApiTags('ai')
@@ -44,6 +45,15 @@ export class AiController {
   })
   deleteContent(@Body() dto: DeleteContentDto) {
     return this.aiService.deleteContent(dto);
+  }
+
+  @Post('test-prompt')
+  @ApiOperation({
+    summary:
+      'Tester un prompt de chapitre sans creer de specification (limite a 500 tokens)',
+  })
+  testPrompt(@Body() dto: TestPromptDto) {
+    return this.aiService.testPrompt(dto);
   }
 
   @Get('history/:specificationWid')

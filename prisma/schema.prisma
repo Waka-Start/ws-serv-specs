@@ -103,7 +103,7 @@ model WakaSpecification {
   id             Int                 @id @default(autoincrement())
   wid            String              @unique @default(uuid())
   templateId     Int                 @map("template_id")
-  projectId      String              @map("project_id")
+  projectId      String?             @map("project_id")
   stepId         String?             @map("step_id")
   name           String
   status         SpecificationStatus @default(DRAFT)

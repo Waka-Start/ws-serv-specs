@@ -7,6 +7,7 @@ import { VentilateDto } from './dto/ventilate.dto.js';
 import { GenerateChapterDto } from './dto/generate-chapter.dto.js';
 import { ModifyContentDto } from './dto/modify-content.dto.js';
 import { DeleteContentDto } from './dto/delete-content.dto.js';
+import { TestPromptDto } from './dto/test-prompt.dto.js';
 
 @Injectable()
 export class AiService {
@@ -300,6 +301,35 @@ export class AiService {
       where: { specificationId: specification.id },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  async testPrompt(
+    dto: TestPromptDto,
+  ): Promise<{ result: string; tokensUsed: number }> {
+    this.logger.debug('Testing prompt without DB persistence');
+
+    let userMessage = dto.chapterPrompt;
+    if (dto.sampleInput) {
+      userMessage += `\n\nTexte d'entree:\n\n${dto.sampleInput}`;
+    }
+
+    const response = await this.anthropic.messages.create({
+      model: this.model,
+      max_tokens: 500,
+      system: dto.megaPrompt,
+      messages: [{ role: 'user', content: userMessage }],
+    });
+
+    const textBlock = response.content.find(
+      (b): b is Anthropic.TextBlock => b.type === 'text',
+    );
+
+    return {
+      result: textBlock?.text ?? '',
+      tokensUsed:
+        (response.usage?.input_tokens ?? 0) +
+        (response.usage?.output_tokens ?? 0),
+    };
   }
 
   private async callClaude(

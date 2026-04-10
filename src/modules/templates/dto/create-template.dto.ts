@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsString, MaxLength, IsNotEmpty } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsString, MaxLength, IsNotEmpty, IsOptional } from 'class-validator';
 
 export class CreateTemplateDto {
   @ApiProperty({ description: 'Titre du modele', maxLength: 100 })
@@ -8,23 +8,23 @@ export class CreateTemplateDto {
   @MaxLength(100)
   title: string;
 
-  @ApiProperty({ description: 'Description affichee aux utilisateurs' })
+  @ApiPropertyOptional({ description: 'Description affichee aux utilisateurs' })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  userDescription: string;
+  userDescription?: string;
 
-  @ApiProperty({ description: 'Description integree dans le document final' })
+  @ApiPropertyOptional({ description: 'Description integree dans le document final' })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  docDescription: string;
+  docDescription?: string;
 
-  @ApiProperty({ description: 'Mega-prompt global associe au modele' })
+  @ApiPropertyOptional({ description: 'Mega-prompt global associe au modele' })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  megaPrompt: string;
+  megaPrompt?: string;
 
-  @ApiProperty({ description: 'Identifiant du createur' })
+  @ApiPropertyOptional({ description: 'Identifiant du createur' })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  createdBy: string;
+  createdBy?: string;
 }

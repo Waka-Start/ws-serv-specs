@@ -12,7 +12,7 @@ COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile --shamefully-hoist
 
 COPY . .
-RUN pnpm run build
+RUN pnpm exec prisma generate --config prisma/prisma.config.ts && pnpm run build
 
 # =============================================================================
 # Production Stage
@@ -27,6 +27,7 @@ WORKDIR /app
 COPY --from=builder --chown=nestjs:nodejs /app/dist ./dist
 COPY --from=builder --chown=nestjs:nodejs /app/node_modules ./node_modules
 COPY --from=builder --chown=nestjs:nodejs /app/package.json ./package.json
+COPY --from=builder --chown=nestjs:nodejs /app/prisma ./prisma
 
 USER nestjs
 
@@ -38,4 +39,4 @@ EXPOSE 3014
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
   CMD wget -qO- http://localhost:3014/api/healthz || exit 1
 
-CMD ["node", "dist/main.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy --config prisma/prisma.config.ts && node dist/main.js"]

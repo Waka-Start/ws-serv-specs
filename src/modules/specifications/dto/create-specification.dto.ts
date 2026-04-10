@@ -7,10 +7,10 @@ export class CreateSpecificationDto {
   @IsNotEmpty()
   templateWid: string;
 
-  @ApiProperty({ description: 'Identifiant du projet WakaProject' })
+  @ApiPropertyOptional({ description: 'Identifiant du projet WakaProject' })
   @IsString()
-  @IsNotEmpty()
-  projectId: string;
+  @IsOptional()
+  projectId?: string;
 
   @ApiPropertyOptional({ description: 'Identifiant de l etape du projet' })
   @IsString()

@@ -54,10 +54,10 @@ export class TemplatesService {
     return this.prisma.wakaSpecTemplate.create({
       data: {
         title: dto.title,
-        userDescription: dto.userDescription,
-        docDescription: dto.docDescription,
-        megaPrompt: dto.megaPrompt,
-        createdBy: dto.createdBy,
+        userDescription: dto.userDescription ?? '',
+        docDescription: dto.docDescription ?? '',
+        megaPrompt: dto.megaPrompt ?? '',
+        createdBy: dto.createdBy ?? 'system',
       },
       include: FULL_HIERARCHY_INCLUDE,
     });
