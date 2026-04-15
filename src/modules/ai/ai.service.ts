@@ -8,6 +8,10 @@ import { GenerateChapterDto } from './dto/generate-chapter.dto.js';
 import { ModifyContentDto } from './dto/modify-content.dto.js';
 import { DeleteContentDto } from './dto/delete-content.dto.js';
 import { TestPromptDto } from './dto/test-prompt.dto.js';
+import {
+  SuggestQuestionsDto,
+  SuggestedQuestion,
+} from './dto/suggest-questions.dto.js';
 
 @Injectable()
 export class AiService {
@@ -301,6 +305,54 @@ export class AiService {
       where: { specificationId: specification.id },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  async suggestQuestions(
+    dto: SuggestQuestionsDto,
+  ): Promise<{ questions: SuggestedQuestion[] }> {
+    this.logger.debug(
+      `Generating contextual questions for chapter: ${dto.chapterTitle}`,
+    );
+
+    const subChapterList =
+      dto.subChapterTitles && dto.subChapterTitles.length > 0
+        ? dto.subChapterTitles.join(', ')
+        : 'Aucun sous-chapitre defini';
+
+    const systemPrompt = `Tu es un assistant de redaction de specifications fonctionnelles.
+
+Contexte du chapitre : "${dto.chapterTitle}"
+Description : "${dto.chapterPrompt}"
+Sous-chapitres prevus : ${subChapterList}
+
+Genere une liste de 5 a 10 questions pertinentes et precises que le redacteur devrait se poser pour rediger ce chapitre de maniere complete et structuree.
+
+Les questions doivent :
+- Etre specifiques au contexte du chapitre (pas generiques)
+- Couvrir les aspects fonctionnels, techniques et utilisateur
+- Aider a identifier les cas d'usage, les contraintes et les dependances
+- Etre formulees de maniere a guider la reflexion
+
+Retourne les questions UNIQUEMENT sous forme de tableau JSON valide, sans texte supplementaire :
+[{ "question": "...", "category": "fonctionnel|technique|utilisateur|contrainte" }]`;
+
+    const userMessage = `Genere les questions pour le chapitre "${dto.chapterTitle}".`;
+
+    const rawResponse = await this.callClaude(systemPrompt, userMessage);
+
+    let questions: SuggestedQuestion[] = [];
+    try {
+      const jsonMatch = rawResponse.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        questions = JSON.parse(jsonMatch[0]) as SuggestedQuestion[];
+      } else {
+        this.logger.warn('Could not extract JSON array from AI response');
+      }
+    } catch (error) {
+      this.logger.error(`Failed to parse AI response as JSON: ${error}`);
+    }
+
+    return { questions };
   }
 
   async testPrompt(

@@ -7,6 +7,7 @@ import { GenerateChapterDto } from './dto/generate-chapter.dto.js';
 import { ModifyContentDto } from './dto/modify-content.dto.js';
 import { DeleteContentDto } from './dto/delete-content.dto.js';
 import { TestPromptDto } from './dto/test-prompt.dto.js';
+import { SuggestQuestionsDto } from './dto/suggest-questions.dto.js';
 
 @Controller('ai')
 @ApiTags('ai')
@@ -45,6 +46,15 @@ export class AiController {
   })
   deleteContent(@Body() dto: DeleteContentDto) {
     return this.aiService.deleteContent(dto);
+  }
+
+  @Post('suggest-questions')
+  @ApiOperation({
+    summary:
+      'Generer des questions contextuelles pour aider la redaction d un chapitre',
+  })
+  suggestQuestions(@Body() dto: SuggestQuestionsDto) {
+    return this.aiService.suggestQuestions(dto);
   }
 
   @Post('test-prompt')
