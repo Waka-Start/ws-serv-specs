@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsArray, IsOptional, ArrayMinSize } from 'class-validator';
+import { IsString, IsNotEmpty, IsArray, IsOptional } from 'class-validator';
 
 export class SuggestQuestionsDto {
   @ApiProperty({ description: 'Titre du chapitre a rediger' })
@@ -20,6 +20,20 @@ export class SuggestQuestionsDto {
   @IsString({ each: true })
   @IsOptional()
   subChapterTitles?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Contenu deja redige dans le chapitre (pour eviter les questions redondantes)',
+  })
+  @IsString()
+  @IsOptional()
+  existingContent?: string;
+
+  @ApiPropertyOptional({
+    description: 'Texte initial saisi par l utilisateur (contexte global du projet)',
+  })
+  @IsString()
+  @IsOptional()
+  initialText?: string;
 }
 
 export interface SuggestedQuestion {

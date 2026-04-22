@@ -8,6 +8,10 @@ import { ModifyContentDto } from './dto/modify-content.dto.js';
 import { DeleteContentDto } from './dto/delete-content.dto.js';
 import { TestPromptDto } from './dto/test-prompt.dto.js';
 import { SuggestQuestionsDto } from './dto/suggest-questions.dto.js';
+import {
+  EvaluateChapterDto,
+  EvaluateAllChaptersDto,
+} from './dto/evaluate-chapter.dto.js';
 
 @Controller('ai')
 @ApiTags('ai')
@@ -64,6 +68,22 @@ export class AiController {
   })
   testPrompt(@Body() dto: TestPromptDto) {
     return this.aiService.testPrompt(dto);
+  }
+
+  @Post('evaluate-chapter')
+  @ApiOperation({
+    summary: 'Evaluer la completude d un chapitre par rapport aux exigences du template',
+  })
+  evaluateChapter(@Body() dto: EvaluateChapterDto) {
+    return this.aiService.evaluateChapter(dto);
+  }
+
+  @Post('evaluate-all')
+  @ApiOperation({
+    summary: 'Evaluer la completude de tous les chapitres d une specification',
+  })
+  evaluateAllChapters(@Body() dto: EvaluateAllChaptersDto) {
+    return this.aiService.evaluateAllChapters(dto);
   }
 
   @Get('history/:specificationWid')
