@@ -33,7 +33,6 @@ export class AiService {
   private readonly anthropic: Anthropic;
   private readonly model: string;
   private readonly modelLight: string;
-  private readonly evalModel: string;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -46,13 +45,14 @@ export class AiService {
       'ANTHROPIC_MODEL',
       'claude-sonnet-4-20250514',
     );
+    // Backward compat : ANTHROPIC_EVAL_MODEL deprecated en faveur de ANTHROPIC_MODEL_LIGHT
+    const deprecatedEvalModel = this.configService.get<string>('ANTHROPIC_EVAL_MODEL');
+    if (deprecatedEvalModel) {
+      this.logger.warn('ANTHROPIC_EVAL_MODEL is deprecated, use ANTHROPIC_MODEL_LIGHT instead');
+    }
     this.modelLight = this.configService.get<string>(
       'ANTHROPIC_MODEL_LIGHT',
-      'claude-haiku-4-5',
-    );
-    this.evalModel = this.configService.get<string>(
-      'ANTHROPIC_EVAL_MODEL',
-      'claude-haiku-4-5-20251001',
+      deprecatedEvalModel ?? 'claude-haiku-4-5-20251001',
     );
   }
 
@@ -673,10 +673,10 @@ Criteres de scoring :
 
     const userMessage = `Exigences du chapitre :\n${chapterPrompt}\n\nSous-sections attendues :\n${subSections}\n\nContenu a evaluer :\n${truncatedContent}`;
 
-    this.logger.debug(`Evaluating chapter with model ${this.evalModel}`);
+    this.logger.debug(`Evaluating chapter with model ${this.modelLight}`);
 
     const response = await this.anthropic.messages.create({
-      model: this.evalModel,
+      model: this.modelLight,
       max_tokens: 512,
       system: systemPrompt,
       messages: [{ role: 'user', content: userMessage }],
@@ -705,7 +705,7 @@ Criteres de scoring :
           ? parsed.missingTopics
           : [],
         feedback: parsed.feedback ?? '',
-        model: this.evalModel,
+        model: this.modelLight,
       };
     } catch (error) {
       this.logger.error(

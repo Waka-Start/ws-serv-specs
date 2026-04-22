@@ -693,6 +693,60 @@ describe('AiService', () => {
     });
   });
 
+  // ── backward compat ANTHROPIC_EVAL_MODEL ────────────────────────
+
+  describe('ANTHROPIC_EVAL_MODEL backward compat', () => {
+    it('should use ANTHROPIC_EVAL_MODEL value when ANTHROPIC_MODEL_LIGHT is not set', async () => {
+      mockConfigService.get.mockImplementation(
+        (key: string, defaultValue?: string) => {
+          const config: Record<string, string> = {
+            ANTHROPIC_API_KEY: 'test-api-key',
+            ANTHROPIC_MODEL: 'claude-test',
+            ANTHROPIC_EVAL_MODEL: 'claude-haiku-4-5-20251001',
+          };
+          return config[key] ?? defaultValue;
+        },
+      );
+
+      const module = await Test.createTestingModule({
+        providers: [
+          AiService,
+          { provide: PrismaService, useValue: mockPrismaService },
+          { provide: ConfigService, useValue: mockConfigService },
+        ],
+      }).compile();
+
+      const svc = module.get<AiService>(AiService);
+      // modelLight should have been resolved to the deprecated value
+      expect((svc as any).modelLight).toBe('claude-haiku-4-5-20251001');
+    });
+
+    it('should prefer ANTHROPIC_MODEL_LIGHT over ANTHROPIC_EVAL_MODEL when both are set', async () => {
+      mockConfigService.get.mockImplementation(
+        (key: string, defaultValue?: string) => {
+          const config: Record<string, string> = {
+            ANTHROPIC_API_KEY: 'test-api-key',
+            ANTHROPIC_MODEL: 'claude-test',
+            ANTHROPIC_EVAL_MODEL: 'claude-haiku-4-5-20251001',
+            ANTHROPIC_MODEL_LIGHT: 'claude-haiku-4-5',
+          };
+          return config[key] ?? defaultValue;
+        },
+      );
+
+      const module = await Test.createTestingModule({
+        providers: [
+          AiService,
+          { provide: PrismaService, useValue: mockPrismaService },
+          { provide: ConfigService, useValue: mockConfigService },
+        ],
+      }).compile();
+
+      const svc = module.get<AiService>(AiService);
+      expect((svc as any).modelLight).toBe('claude-haiku-4-5');
+    });
+  });
+
   // ── getHistory ──────────────────────────────────────────────────
 
   describe('getHistory', () => {
