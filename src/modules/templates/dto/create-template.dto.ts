@@ -18,9 +18,10 @@ export class CreateTemplateDto {
   @IsString()
   docDescription?: string;
 
-  @ApiPropertyOptional({ description: 'Mega-prompt global associe au modele' })
+  @ApiPropertyOptional({ description: 'Mega-prompt global associe au modele', maxLength: 50000 })
   @IsOptional()
   @IsString()
+  @MaxLength(50000)
   megaPrompt?: string;
 
   @ApiPropertyOptional({ description: 'Identifiant du createur' })
