@@ -5,14 +5,17 @@ import { AiService } from './ai.service';
 import { PrismaService } from '../../prisma/prisma.service';
 
 // Mock Anthropic SDK
+const mockMessagesCreate = jest.fn().mockResolvedValue({
+  content: [{ type: 'text', text: 'Generated AI content' }],
+  stop_reason: 'end_turn',
+});
+
 jest.mock('@anthropic-ai/sdk', () => {
   return {
     __esModule: true,
     default: jest.fn().mockImplementation(() => ({
       messages: {
-        create: jest.fn().mockResolvedValue({
-          content: [{ type: 'text', text: 'Generated AI content' }],
-        }),
+        create: mockMessagesCreate,
       },
     })),
   };
@@ -50,6 +53,10 @@ describe('AiService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockMessagesCreate.mockResolvedValue({
+      content: [{ type: 'text', text: 'Generated AI content' }],
+      stop_reason: 'end_turn',
+    });
 
     // Re-mock config get for each test
     mockConfigService.get.mockImplementation(
@@ -516,6 +523,73 @@ describe('AiService', () => {
           userId: 'user-1',
         }),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ── suggestQuestions ────────────────────────────────────────────
+
+  describe('suggestQuestions', () => {
+    const dto = {
+      chapterTitle: 'Architecture technique',
+      chapterPrompt: 'Décrit les composants techniques du système',
+      subChapterTitles: ['Backend', 'Frontend'],
+    };
+
+    it('should return questions from tool_use block', async () => {
+      const questions = [
+        { question: 'Quelle est la stack backend ?', category: 'technique' },
+        { question: 'Combien d’utilisateurs simultanement ?', category: 'contrainte' },
+      ];
+
+      mockMessagesCreate.mockResolvedValueOnce({
+        content: [
+          {
+            type: 'tool_use',
+            name: 'return_questions',
+            input: { questions },
+          },
+        ],
+        stop_reason: 'tool_use',
+      });
+
+      const result = await service.suggestQuestions(dto);
+
+      expect(result.questions).toEqual(questions);
+    });
+
+    it('should return empty array when no tool_use block', async () => {
+      mockMessagesCreate.mockResolvedValueOnce({
+        content: [{ type: 'text', text: 'Some text response' }],
+        stop_reason: 'end_turn',
+      });
+
+      const result = await service.suggestQuestions(dto);
+
+      expect(result.questions).toEqual([]);
+    });
+
+    it('should call Claude with tool_choice forced to return_questions', async () => {
+      mockMessagesCreate.mockResolvedValueOnce({
+        content: [
+          {
+            type: 'tool_use',
+            name: 'return_questions',
+            input: { questions: [] },
+          },
+        ],
+        stop_reason: 'tool_use',
+      });
+
+      await service.suggestQuestions(dto);
+
+      expect(mockMessagesCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tool_choice: { type: 'tool', name: 'return_questions' },
+          tools: expect.arrayContaining([
+            expect.objectContaining({ name: 'return_questions' }),
+          ]),
+        }),
+      );
     });
   });
 

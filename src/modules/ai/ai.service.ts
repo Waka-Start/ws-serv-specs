@@ -17,12 +17,22 @@ import {
   EvaluateAllChaptersDto,
   ChapterEvaluationDetails,
 } from './dto/evaluate-chapter.dto.js';
+import {
+  MODIFY_CONTENT_SYSTEM,
+  buildModifyContentUserMessage,
+} from './prompts/modify-content.prompt.js';
+import {
+  SUGGEST_QUESTIONS_SYSTEM,
+  buildSuggestQuestionsUserMessage,
+  PROMPT_VERSION,
+} from './prompts/suggest-questions.prompt.js';
 
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
   private readonly anthropic: Anthropic;
   private readonly model: string;
+  private readonly modelLight: string;
   private readonly evalModel: string;
 
   constructor(
@@ -35,6 +45,10 @@ export class AiService {
     this.model = this.configService.get<string>(
       'ANTHROPIC_MODEL',
       'claude-sonnet-4-20250514',
+    );
+    this.modelLight = this.configService.get<string>(
+      'ANTHROPIC_MODEL_LIGHT',
+      'claude-haiku-4-5',
     );
     this.evalModel = this.configService.get<string>(
       'ANTHROPIC_EVAL_MODEL',
@@ -68,17 +82,26 @@ export class AiService {
     const megaPrompt = specification.template.megaPrompt;
     const templateChapters = specification.template.chapters;
 
-    const results = await Promise.all(
-      templateChapters.map(async (templateChapter) => {
-        const userMessage = `${templateChapter.prompt}\n\nVoici le texte initial a ventiler dans ce chapitre:\n\n${dto.initialText}`;
-        const aiResponse = await this.callClaude(megaPrompt, userMessage);
+    // Concurrence bornée à 3 appels simultanés pour éviter la saturation de l'API
+    const CONCURRENCY_LIMIT = 3;
+    const results: Array<{
+      templateChapter: (typeof templateChapters)[0];
+      aiResponse: string;
+    }> = [];
 
-        return {
-          templateChapter,
-          aiResponse,
-        };
-      }),
-    );
+    for (let i = 0; i < templateChapters.length; i += CONCURRENCY_LIMIT) {
+      const batch = templateChapters.slice(i, i + CONCURRENCY_LIMIT);
+      const batchResults = await Promise.all(
+        batch.map(async (templateChapter) => {
+          const userMessage = `${templateChapter.prompt}\n\nVoici le texte initial à ventiler dans ce chapitre :\n\n<user_data>\n${dto.initialText}\n</user_data>`;
+          const aiResponse = await this.callClaude(megaPrompt, userMessage, {
+            enableCache: true,
+          });
+          return { templateChapter, aiResponse };
+        }),
+      );
+      results.push(...batchResults);
+    }
 
     for (const { templateChapter, aiResponse } of results) {
       const chapterContent = specification.chapters.find(
@@ -102,6 +125,10 @@ export class AiService {
           userInstruction: dto.initialText,
           aiResponse,
           userId: dto.userId,
+          modelUsed: this.model,
+          megaPromptSnapshot: megaPrompt,
+          chapterPromptSnapshot: templateChapter.prompt,
+          promptVersion: PROMPT_VERSION,
         },
       });
     }
@@ -163,14 +190,16 @@ export class AiService {
     let userMessage = templateChapter.prompt;
 
     if (chapterContent.content) {
-      userMessage += `\n\nContenu existant du chapitre:\n\n${chapterContent.content}`;
+      userMessage += `\n\nContenu existant du chapitre :\n\n<user_data>\n${chapterContent.content}\n</user_data>`;
     }
 
     if (dto.userInstruction) {
-      userMessage += `\n\nInstruction utilisateur:\n\n${dto.userInstruction}`;
+      userMessage += `\n\nInstruction utilisateur :\n\n<user_data>\n${dto.userInstruction}\n</user_data>`;
     }
 
-    const aiResponse = await this.callClaude(megaPrompt, userMessage);
+    const aiResponse = await this.callClaude(megaPrompt, userMessage, {
+      enableCache: true,
+    });
 
     await this.prisma.wakaSpecChapterContent.update({
       where: { id: chapterContent.id },
@@ -187,6 +216,10 @@ export class AiService {
         userInstruction: dto.userInstruction ?? null,
         aiResponse,
         userId: dto.userId,
+        modelUsed: this.model,
+        megaPromptSnapshot: megaPrompt,
+        chapterPromptSnapshot: templateChapter.prompt,
+        promptVersion: PROMPT_VERSION,
       },
     });
 
@@ -217,12 +250,13 @@ export class AiService {
       );
     }
 
-    const systemPrompt =
-      'Tu es un assistant de redaction de specifications fonctionnelles. Modifie uniquement le texte selectionne dans le contexte du chapitre. Retourne le contenu COMPLET du chapitre avec la modification appliquee.';
+    const userMessage = buildModifyContentUserMessage({
+      chapterContent: chapterContent.content ?? '',
+      selectedText: dto.selectedText,
+      userInstruction: dto.userInstruction,
+    });
 
-    const userMessage = `Contexte du chapitre:\n${chapterContent.content ?? ''}\n\nTexte selectionne a modifier:\n${dto.selectedText}\n\nInstruction:\n${dto.userInstruction}`;
-
-    const aiResponse = await this.callClaude(systemPrompt, userMessage);
+    const aiResponse = await this.callClaude(MODIFY_CONTENT_SYSTEM, userMessage);
 
     await this.prisma.wakaSpecChapterContent.update({
       where: { id: chapterContent.id },
@@ -239,6 +273,8 @@ export class AiService {
         userInstruction: `Selection: ${dto.selectedText}\nInstruction: ${dto.userInstruction}`,
         aiResponse,
         userId: dto.userId,
+        modelUsed: this.model,
+        promptVersion: PROMPT_VERSION,
       },
     });
 
@@ -314,68 +350,79 @@ export class AiService {
     dto: SuggestQuestionsDto,
   ): Promise<{ questions: SuggestedQuestion[] }> {
     this.logger.debug(
-      `Generating contextual questions for chapter: ${dto.chapterTitle}`,
+      `Generating contextual questions for chapter: ${dto.chapterTitle} (model=${this.modelLight})`,
     );
 
     const subChapterList =
       dto.subChapterTitles && dto.subChapterTitles.length > 0
         ? dto.subChapterTitles.join(', ')
-        : 'Aucun sous-chapitre defini';
+        : 'Aucun sous-chapitre défini';
 
-    // Construire le contexte existant pour eviter les questions redondantes
-    let existingContext = '';
-    if (dto.initialText) {
-      existingContext += `\n\nTexte initial fourni par l'utilisateur (informations deja connues, NE PAS reposer de questions sur ces elements) :\n${dto.initialText.slice(0, 2000)}`;
-    }
-    if (dto.existingContent) {
-      existingContext += `\n\nContenu deja redige dans ce chapitre (NE PAS reposer de questions sur ces elements) :\n${dto.existingContent.slice(0, 2000)}`;
-    }
+    const userMessage = buildSuggestQuestionsUserMessage({
+      chapterTitle: dto.chapterTitle,
+      chapterPrompt: dto.chapterPrompt,
+      subChapterList,
+      existingContent: dto.existingContent,
+      initialText: dto.initialText,
+    });
 
-    const systemPrompt = `Tu es un assistant qui aide des porteurs de projet (clients, decideurs metier) a exprimer leurs besoins pour un cahier des charges fonctionnel.
+    const returnQuestionsTool: Anthropic.Tool = {
+      name: 'return_questions',
+      description:
+        'Retourne la liste de questions générées pour le chapitre de spécification.',
+      input_schema: {
+        type: 'object' as const,
+        properties: {
+          questions: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                question: { type: 'string' },
+                category: {
+                  type: 'string',
+                  enum: ['fonctionnel', 'technique', 'utilisateur', 'contrainte'],
+                },
+              },
+              required: ['question', 'category'],
+            },
+          },
+        },
+        required: ['questions'],
+      },
+    };
 
-Chapitre en cours de redaction : "${dto.chapterTitle}"
-Objectif du chapitre : "${dto.chapterPrompt}"
-Sous-sections a couvrir : ${subChapterList}
-${existingContext}
-
-REGLES IMPORTANTES :
-1. Les questions s'adressent a des PORTEURS DE PROJET (decideurs metier), PAS a des developpeurs ou techniciens
-2. Utilise un langage simple et accessible, sans jargon technique
-3. Ne pose JAMAIS de questions sur WakaStart, WakaProject ou la plateforme technique — c'est notre produit, le porteur de projet ne le connait pas
-4. Ne pose JAMAIS de questions dont la reponse est deja dans le texte initial ou le contenu existant (noms, descriptions, acteurs mentionnes, etc.)
-5. Concentre-toi sur le BESOIN METIER : qui fait quoi, dans quel cas, avec quelles regles, quelles exceptions
-6. Pose entre 5 et 8 questions, du plus simple au plus specifique
-
-Retourne les questions UNIQUEMENT sous forme de tableau JSON valide, sans texte supplementaire :
-[{ "question": "...", "category": "fonctionnel|technique|utilisateur|contrainte" }]
-
-Exemples de BONNES questions (simples, orientees besoin) :
-- "Qui sont les utilisateurs principaux de cette fonctionnalite ?"
-- "Que doit-il se passer quand un document est refuse ?"
-- "Y a-t-il des cas ou cette regle ne s'applique pas ?"
-
-Exemples de MAUVAISES questions (trop techniques, a eviter) :
-- "Quelle architecture de base de donnees souhaitez-vous ?"
-- "Comment WakaStart gere-t-il les permissions ?"
-- "Quels endpoints API sont necessaires ?"`;
-
-    const userMessage = `Genere les questions pour aider le porteur de projet a exprimer ses besoins sur le chapitre "${dto.chapterTitle}".`;
-
-    const rawResponse = await this.callClaude(systemPrompt, userMessage);
-
-    let questions: SuggestedQuestion[] = [];
     try {
-      const jsonMatch = rawResponse.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        questions = JSON.parse(jsonMatch[0]) as SuggestedQuestion[];
-      } else {
-        this.logger.warn('Could not extract JSON array from AI response');
-      }
-    } catch (error) {
-      this.logger.error(`Failed to parse AI response as JSON: ${error}`);
-    }
+      const response = await this.anthropic.messages.create({
+        model: this.modelLight,
+        max_tokens: 1024,
+        system: SUGGEST_QUESTIONS_SYSTEM,
+        tools: [returnQuestionsTool],
+        tool_choice: { type: 'tool', name: 'return_questions' },
+        messages: [{ role: 'user', content: userMessage }],
+      });
 
-    return { questions };
+      if (response.stop_reason === 'max_tokens') {
+        this.logger.warn(
+          `suggestQuestions response truncated (max_tokens) — model=${this.modelLight}`,
+        );
+      }
+
+      const toolUseBlock = response.content.find(
+        (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
+      );
+
+      if (!toolUseBlock) {
+        this.logger.warn('No tool_use block in suggestQuestions response');
+        return { questions: [] };
+      }
+
+      const input = toolUseBlock.input as { questions: SuggestedQuestion[] };
+      return { questions: input.questions ?? [] };
+    } catch (error) {
+      this.logger.error(`suggestQuestions Claude API error: ${error}`);
+      throw error;
+    }
   }
 
   async testPrompt(
@@ -671,16 +718,39 @@ Criteres de scoring :
   private async callClaude(
     system: string,
     userMessage: string,
+    options?: { enableCache?: boolean; model?: string },
   ): Promise<string> {
-    this.logger.debug(`Calling Claude model ${this.model}`);
+    const model = options?.model ?? this.model;
+    this.logger.debug(
+      `Calling Claude model ${model} (cache=${options?.enableCache ?? false}, promptVersion=${PROMPT_VERSION})`,
+    );
 
     try {
+      const systemParam: Anthropic.MessageParam['content'] | string =
+        options?.enableCache
+          ? [
+              {
+                type: 'text',
+                text: system,
+                cache_control: { type: 'ephemeral' },
+              } as Anthropic.TextBlockParam & {
+                cache_control: { type: 'ephemeral' };
+              },
+            ]
+          : system;
+
       const response = await this.anthropic.messages.create({
-        model: this.model,
+        model,
         max_tokens: 4096,
-        system,
+        system: systemParam as Anthropic.MessageCreateParamsNonStreaming['system'],
         messages: [{ role: 'user', content: userMessage }],
       });
+
+      if (response.stop_reason === 'max_tokens') {
+        this.logger.warn(
+          `Claude response truncated (max_tokens reached) — model=${model} promptVersion=${PROMPT_VERSION}`,
+        );
+      }
 
       const textBlock = response.content.find(
         (b): b is Anthropic.TextBlock => b.type === 'text',
