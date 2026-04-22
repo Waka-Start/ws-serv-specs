@@ -143,14 +143,18 @@ model WakaSpecChapterContent {
 }
 
 model WakaSpecAIHistory {
-  id              Int      @id @default(autoincrement())
-  specificationId Int      @map("specification_id")
-  chapterWid      String?  @map("chapter_wid")
-  action          AIAction
-  userInstruction String?  @map("user_instruction") @db.Text
-  aiResponse      String?  @map("ai_response") @db.Text
-  createdAt       DateTime @default(now()) @map("created_at")
-  userId          String   @map("user_id")
+  id                     Int      @id @default(autoincrement())
+  specificationId        Int      @map("specification_id")
+  chapterWid             String?  @map("chapter_wid")
+  action                 AIAction
+  userInstruction        String?  @map("user_instruction") @db.Text
+  aiResponse             String?  @map("ai_response") @db.Text
+  modelUsed              String?  @map("model_used")
+  megaPromptSnapshot     String?  @map("mega_prompt_snapshot") @db.Text
+  chapterPromptSnapshot  String?  @map("chapter_prompt_snapshot") @db.Text
+  promptVersion          String?  @map("prompt_version")
+  createdAt              DateTime @default(now()) @map("created_at")
+  userId                 String   @map("user_id")
 
   specification WakaSpecification @relation(fields: [specificationId], references: [id], onDelete: Cascade)
 
