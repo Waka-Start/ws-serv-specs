@@ -203,6 +203,27 @@ export class AiService {
     const megaPrompt = specification.template.megaPrompt;
     let userMessage = templateChapter.prompt;
 
+    // Injection du contexte cross-chapitres : autres chapitres non vides
+    const otherChapters = specification.chapters.filter(
+      (ch) => ch.chapterWid !== dto.chapterWid && ch.content?.trim(),
+    );
+    if (otherChapters.length > 0) {
+      const templateChaptersMap = new Map(
+        specification.template.chapters.map((tc) => [tc.wid, tc.title]),
+      );
+      const crossContext = otherChapters
+        .map((ch) => {
+          const title = templateChaptersMap.get(ch.chapterWid) ?? ch.chapterWid;
+          const truncated =
+            ch.content!.length > 500
+              ? ch.content!.slice(0, 500) + '…'
+              : ch.content!;
+          return `[${title}]:\n${truncated}`;
+        })
+        .join('\n\n');
+      userMessage += `\n\nContexte : voici le contenu déjà rédigé dans les autres chapitres de la spécification :\n\n<user_data>\n${crossContext}\n</user_data>`;
+    }
+
     if (chapterContent.content) {
       userMessage += `\n\nContenu existant du chapitre :\n\n<user_data>\n${chapterContent.content}\n</user_data>`;
     }
