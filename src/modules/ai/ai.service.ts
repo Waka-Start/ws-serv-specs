@@ -91,7 +91,7 @@ export class AiService {
 
     for (let i = 0; i < templateChapters.length; i += CONCURRENCY_LIMIT) {
       const batch = templateChapters.slice(i, i + CONCURRENCY_LIMIT);
-      const batchResults = await Promise.all(
+      const batchSettled = await Promise.allSettled(
         batch.map(async (templateChapter) => {
           const userMessage = `${templateChapter.prompt}\n\nVoici le texte initial à ventiler dans ce chapitre :\n\n<user_data>\n${dto.initialText}\n</user_data>`;
           const aiResponse = await this.callClaude(megaPrompt, userMessage, {
@@ -100,13 +100,27 @@ export class AiService {
           return { templateChapter, aiResponse };
         }),
       );
-      results.push(...batchResults);
+      for (const settled of batchSettled) {
+        if (settled.status === 'fulfilled') {
+          results.push(settled.value);
+        } else {
+          this.logger.error(
+            `ventilate: batch chapter failed — specificationWid=${dto.specificationWid} error=${settled.reason}`,
+          );
+        }
+      }
     }
 
     for (const { templateChapter, aiResponse } of results) {
       const chapterContent = specification.chapters.find(
         (ch) => ch.chapterWid === templateChapter.wid,
       );
+
+      if (!chapterContent) {
+        this.logger.warn(
+          `ventilate: chapterContent not found for templateChapter.wid=${templateChapter.wid} — specificationWid=${dto.specificationWid} — present chapterWids=[${specification.chapters.slice(0, 10).map((ch) => ch.chapterWid).join(', ')}]`,
+        );
+      }
 
       if (chapterContent) {
         await this.prisma.wakaSpecChapterContent.update({
@@ -741,7 +755,7 @@ Criteres de scoring :
 
       const response = await this.anthropic.messages.create({
         model,
-        max_tokens: 4096,
+        max_tokens: 8192,
         system: systemParam as Anthropic.MessageCreateParamsNonStreaming['system'],
         messages: [{ role: 'user', content: userMessage }],
       });
