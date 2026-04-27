@@ -28,8 +28,11 @@ import { AiModule } from './modules/ai/ai.module.js';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         connection: {
-          host: config.get<string>('REDIS_HOST', 'localhost'),
-          port: config.get<number>('REDIS_PORT', 6379),
+          host: config.get<string>('VALKEY_HOST', 'localhost'),
+          port: config.get<number>('VALKEY_PORT', 6379),
+          username: config.get<string>('VALKEY_USERNAME') || undefined,
+          password: config.get<string>('VALKEY_PASSWORD') || undefined,
+          tls: config.get<string>('VALKEY_TLS') === 'true' ? {} : undefined,
         },
       }),
     }),
