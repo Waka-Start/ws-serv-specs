@@ -179,9 +179,23 @@ export class AiJobsProcessor extends WorkerHost {
             data: { content: text },
           });
         } else {
+          // Cas defensif : la ligne WakaSpecChapterContent n'a pas ete pre-creee
+          // a la creation de la spec (bug en amont). On la cree maintenant pour
+          // ne PAS perdre silencieusement le contenu genere par Claude — sinon
+          // le job termine SUCCEEDED mais l'editeur reste vide cote frontend
+          // (et le user a paye des tokens pour rien).
           this.logger.warn(
-            `Job ${jobWid}: chapterContent not found for chapterWid=${templateChapter.wid}`,
+            `Job ${jobWid}: chapterContent missing for chapterWid=${templateChapter.wid} — creating fallback row`,
           );
+          await this.prisma.wakaSpecChapterContent.create({
+            data: {
+              specificationId: specification.id,
+              chapterWid: templateChapter.wid,
+              chapterTitle: templateChapter.title,
+              chapterOrder: templateChapter.order,
+              content: text,
+            },
+          });
         }
 
         // Créer l'entrée dans l'historique AI
