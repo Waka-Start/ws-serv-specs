@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
-import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, UseGuards } from '@nestjs/common';
+import { ApiOperation, ApiResponse, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { ApiKeyGuard } from '../../common/guards/api-key.guard.js';
 import { AiService } from './ai.service.js';
 import { VentilateDto } from './dto/ventilate.dto.js';
@@ -21,9 +21,12 @@ export class AiController {
   constructor(private readonly aiService: AiService) {}
 
   @Post('ventilate')
+  @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({
-    summary: 'Ventiler un texte initial dans tous les chapitres',
+    summary: 'Ventiler un texte initial dans tous les chapitres (async — retourne un jobWid)',
   })
+  @ApiResponse({ status: 202, description: 'Job créé — polling via GET /api/ai/jobs/:jobWid' })
+  @ApiResponse({ status: 409, description: 'Un job VENTILATE est déjà en cours pour cette specification' })
   ventilate(@Body() dto: VentilateDto) {
     return this.aiService.ventilate(dto);
   }

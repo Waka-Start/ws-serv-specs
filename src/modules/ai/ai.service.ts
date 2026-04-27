@@ -1,8 +1,15 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import Anthropic from '@anthropic-ai/sdk';
-import { AIAction } from '@prisma/client';
+import { AIAction, EnumAiJobStatus, EnumAiJobType } from '@prisma/client';
 import { VentilateDto } from './dto/ventilate.dto.js';
 import { GenerateChapterDto } from './dto/generate-chapter.dto.js';
 import { ModifyContentDto } from './dto/modify-content.dto.js';
@@ -30,13 +37,14 @@ import {
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
-  private readonly anthropic: Anthropic;
-  private readonly model: string;
-  private readonly modelLight: string;
+  readonly anthropic: Anthropic;
+  readonly model: string;
+  readonly modelLight: string;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    @InjectQueue('ai-jobs') private readonly aiJobsQueue: Queue,
   ) {
     this.anthropic = new Anthropic({
       apiKey: this.configService.get<string>('ANTHROPIC_API_KEY'),
@@ -56,21 +64,10 @@ export class AiService {
     );
   }
 
-  async ventilate(dto: VentilateDto) {
+  async ventilate(dto: VentilateDto): Promise<{ jobWid: string; status: string }> {
+    // Vérifier que la specification existe
     const specification = await this.prisma.wakaSpecification.findUnique({
       where: { wid: dto.specificationWid },
-      include: {
-        template: {
-          include: {
-            chapters: {
-              orderBy: { order: 'asc' },
-            },
-          },
-        },
-        chapters: {
-          orderBy: { chapterOrder: 'asc' },
-        },
-      },
     });
 
     if (!specification) {
@@ -79,84 +76,53 @@ export class AiService {
       );
     }
 
-    const megaPrompt = specification.template.megaPrompt;
-    const templateChapters = specification.template.chapters;
+    // Vérifier qu'il n'y a pas déjà un job VENTILATE en cours pour cette specification
+    const existingJob = await this.prisma.wakaSpecAiJob.findFirst({
+      where: {
+        specificationWid: dto.specificationWid,
+        type: EnumAiJobType.VENTILATE,
+        status: { in: [EnumAiJobStatus.PENDING, EnumAiJobStatus.RUNNING] },
+      },
+    });
 
-    // Concurrence bornée à 3 appels simultanés pour éviter la saturation de l'API
-    const CONCURRENCY_LIMIT = 3;
-    const results: Array<{
-      templateChapter: (typeof templateChapters)[0];
-      aiResponse: string;
-    }> = [];
-
-    for (let i = 0; i < templateChapters.length; i += CONCURRENCY_LIMIT) {
-      const batch = templateChapters.slice(i, i + CONCURRENCY_LIMIT);
-      const batchSettled = await Promise.allSettled(
-        batch.map(async (templateChapter) => {
-          const userMessage = `${templateChapter.prompt}\n\nVoici le texte initial à ventiler dans ce chapitre :\n\n<user_data>\n${dto.initialText}\n</user_data>`;
-          const aiResponse = await this.callClaude(megaPrompt, userMessage, {
-            enableCache: true,
-          });
-          return { templateChapter, aiResponse };
-        }),
+    if (existingJob) {
+      throw new ConflictException(
+        `A VENTILATE job is already PENDING or RUNNING for specification ${dto.specificationWid} (jobWid=${existingJob.wid})`,
       );
-      for (const settled of batchSettled) {
-        if (settled.status === 'fulfilled') {
-          results.push(settled.value);
-        } else {
-          this.logger.error(
-            `ventilate: batch chapter failed — specificationWid=${dto.specificationWid} error=${settled.reason}`,
-          );
-        }
-      }
     }
 
-    for (const { templateChapter, aiResponse } of results) {
-      const chapterContent = specification.chapters.find(
-        (ch) => ch.chapterWid === templateChapter.wid,
-      );
-
-      if (!chapterContent) {
-        this.logger.warn(
-          `ventilate: chapterContent not found for templateChapter.wid=${templateChapter.wid} — specificationWid=${dto.specificationWid} — present chapterWids=[${specification.chapters.slice(0, 10).map((ch) => ch.chapterWid).join(', ')}]`,
-        );
-      }
-
-      if (chapterContent) {
-        await this.prisma.wakaSpecChapterContent.update({
-          where: { id: chapterContent.id },
-          data: {
-            content: aiResponse,
-          },
-        });
-      }
-
-      await this.prisma.wakaSpecAIHistory.create({
-        data: {
-          specificationId: specification.id,
-          chapterWid: templateChapter.wid,
-          action: AIAction.VENTILATE,
-          userInstruction: dto.initialText,
-          aiResponse,
+    // Créer le job en base
+    const job = await this.prisma.wakaSpecAiJob.create({
+      data: {
+        type: EnumAiJobType.VENTILATE,
+        status: EnumAiJobStatus.PENDING,
+        specificationWid: dto.specificationWid,
+        userId: dto.userId,
+        input: {
+          specificationWid: dto.specificationWid,
+          initialText: dto.initialText,
           userId: dto.userId,
-          modelUsed: this.model,
-          megaPromptSnapshot: megaPrompt,
-          chapterPromptSnapshot: templateChapter.prompt,
-          promptVersion: PROMPT_VERSION,
-        },
-      });
-    }
-
-    await this.evaluateAllChaptersInternal(specification.id);
-
-    return this.prisma.wakaSpecification.findUnique({
-      where: { id: specification.id },
-      include: {
-        chapters: {
-          orderBy: { chapterOrder: 'asc' },
         },
       },
     });
+
+    // Ajouter le job à la queue BullMQ (pas de retry pour ne pas re-consommer des tokens)
+    await this.aiJobsQueue.add(
+      'ventilate',
+      { jobWid: job.wid },
+      {
+        jobId: job.wid,
+        attempts: 1,
+        removeOnComplete: { count: 100 },
+        removeOnFail: { count: 100 },
+      },
+    );
+
+    this.logger.log(
+      `ventilate: job created — jobWid=${job.wid} specificationWid=${dto.specificationWid}`,
+    );
+
+    return { jobWid: job.wid, status: EnumAiJobStatus.PENDING };
   }
 
   async generateChapter(dto: GenerateChapterDto) {
@@ -444,7 +410,7 @@ export class AiService {
       }
 
       const toolUseBlock = response.content.find(
-        (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
+        (b: Anthropic.ContentBlock): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
       );
 
       if (!toolUseBlock) {
@@ -478,7 +444,7 @@ export class AiService {
     });
 
     const textBlock = response.content.find(
-      (b): b is Anthropic.TextBlock => b.type === 'text',
+      (b: Anthropic.ContentBlock): b is Anthropic.TextBlock => b.type === 'text',
     );
 
     return {
@@ -718,7 +684,7 @@ Criteres de scoring :
     });
 
     const textBlock = response.content.find(
-      (b): b is Anthropic.TextBlock => b.type === 'text',
+      (b: Anthropic.ContentBlock): b is Anthropic.TextBlock => b.type === 'text',
     );
 
     const rawText = textBlock?.text ?? '';
@@ -788,7 +754,7 @@ Criteres de scoring :
       }
 
       const textBlock = response.content.find(
-        (b): b is Anthropic.TextBlock => b.type === 'text',
+        (b: Anthropic.ContentBlock): b is Anthropic.TextBlock => b.type === 'text',
       );
       return textBlock?.text ?? '';
     } catch (error) {
