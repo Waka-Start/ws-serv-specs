@@ -126,6 +126,14 @@ export class AiService {
   }
 
   async generateChapter(dto: GenerateChapterDto) {
+    // Sanitize userInstruction : trim + cap à 20 000 chars pour éviter un prompt explosé
+    const MAX_USER_INSTRUCTION_CHARS = 20_000;
+    const sanitizedInstruction = dto.userInstruction?.trim()
+      ? dto.userInstruction.trim().length > MAX_USER_INSTRUCTION_CHARS
+        ? dto.userInstruction.trim().slice(0, MAX_USER_INSTRUCTION_CHARS) + '\n[instruction tronquée]'
+        : dto.userInstruction.trim()
+      : undefined;
+
     const specification = await this.prisma.wakaSpecification.findUnique({
       where: { wid: dto.specificationWid },
       include: {
@@ -169,10 +177,15 @@ export class AiService {
     const megaPrompt = specification.template.megaPrompt;
     let userMessage = templateChapter.prompt;
 
-    // Injection du contexte cross-chapitres : autres chapitres non vides
-    const otherChapters = specification.chapters.filter(
-      (ch) => ch.chapterWid !== dto.chapterWid && ch.content?.trim(),
-    );
+    // Injection du contexte cross-chapitres : cap à 5 chapitres, troncature à 300 chars chacun
+    // pour éviter un prompt trop volumineux qui déclenche une erreur 400 Anthropic
+    const MAX_CROSS_CHAPTERS = 5;
+    const MAX_CROSS_CHAPTER_CHARS = 300;
+    const otherChapters = specification.chapters
+      .filter((ch) => ch.chapterWid !== dto.chapterWid && ch.content?.trim())
+      .slice(0, MAX_CROSS_CHAPTERS);
+
+    let crossContextSize = 0;
     if (otherChapters.length > 0) {
       const templateChaptersMap = new Map(
         specification.template.chapters.map((tc) => [tc.wid, tc.title]),
@@ -181,12 +194,13 @@ export class AiService {
         .map((ch) => {
           const title = templateChaptersMap.get(ch.chapterWid) ?? ch.chapterWid;
           const truncated =
-            ch.content!.length > 500
-              ? ch.content!.slice(0, 500) + '…'
+            ch.content!.length > MAX_CROSS_CHAPTER_CHARS
+              ? ch.content!.slice(0, MAX_CROSS_CHAPTER_CHARS) + '…'
               : ch.content!;
           return `[${title}]:\n${truncated}`;
         })
         .join('\n\n');
+      crossContextSize = crossContext.length;
       userMessage += `\n\nContexte : voici le contenu déjà rédigé dans les autres chapitres de la spécification :\n\n<user_data>\n${crossContext}\n</user_data>`;
     }
 
@@ -194,13 +208,30 @@ export class AiService {
       userMessage += `\n\nContenu existant du chapitre :\n\n<user_data>\n${chapterContent.content}\n</user_data>`;
     }
 
-    if (dto.userInstruction) {
-      userMessage += `\n\nInstruction utilisateur :\n\n<user_data>\n${dto.userInstruction}\n</user_data>`;
+    if (sanitizedInstruction) {
+      userMessage += `\n\nInstruction utilisateur :\n\n<user_data>\n${sanitizedInstruction}\n</user_data>`;
     }
 
-    const aiResponse = await this.callClaude(megaPrompt, userMessage, {
-      enableCache: true,
-    });
+    let aiResponse: string;
+    try {
+      aiResponse = await this.callClaude(megaPrompt, userMessage, {
+        enableCache: true,
+      });
+    } catch (error) {
+      const anthropicStatus =
+        error instanceof Anthropic.APIError ? error.status : undefined;
+      const anthropicMessage =
+        error instanceof Anthropic.APIError ? error.message : String(error);
+
+      this.logger.error(
+        `generateChapter failed — specificationWid=${dto.specificationWid} chapterWid=${dto.chapterWid} ` +
+        `userInstructionChars=${sanitizedInstruction?.length ?? 0} crossContextChars=${crossContextSize} ` +
+        `userMessageChars=${userMessage.length} ` +
+        `anthropicStatus=${anthropicStatus ?? 'n/a'} anthropicMessage="${anthropicMessage}"`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw error;
+    }
 
     await this.prisma.wakaSpecChapterContent.update({
       where: { id: chapterContent.id },
@@ -214,7 +245,7 @@ export class AiService {
         specificationId: specification.id,
         chapterWid: dto.chapterWid,
         action: AIAction.GENERATE,
-        userInstruction: dto.userInstruction ?? null,
+        userInstruction: sanitizedInstruction ?? null,
         aiResponse,
         userId: dto.userId,
         modelUsed: this.model,
@@ -758,7 +789,12 @@ Criteres de scoring :
       );
       return textBlock?.text ?? '';
     } catch (error) {
-      this.logger.error(`Claude API error: ${error}`);
+      const status = error instanceof Anthropic.APIError ? error.status : undefined;
+      const msg = error instanceof Anthropic.APIError ? error.message : String(error);
+      this.logger.error(
+        `callClaude error — model=${model} status=${status ?? 'n/a'} message="${msg}"`,
+        error instanceof Error ? error.stack : undefined,
+      );
       throw error;
     }
   }
