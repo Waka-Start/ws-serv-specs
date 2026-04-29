@@ -24,6 +24,20 @@ enum AIAction {
   DELETE
 }
 
+enum EnumAiJobType {
+  VENTILATE
+  GENERATE_CHAPTER
+  MODIFY
+}
+
+enum EnumAiJobStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
 // ──────────────────────────────────────────────────────────────────
 // MODELES DE SPECIFICATION (Templates)
 // ──────────────────────────────────────────────────────────────────
@@ -140,6 +154,34 @@ model WakaSpecChapterContent {
   specification WakaSpecification @relation(fields: [specificationId], references: [id], onDelete: Cascade)
 
   @@map("waka_spec_chapter_content")
+}
+
+model WakaSpecAiJob {
+  id                String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  wid               String          @unique @default(cuid())
+  type              EnumAiJobType
+  status            EnumAiJobStatus @default(PENDING)
+
+  specificationWid  String          @map("specification_wid") @db.Uuid
+  userId            String          @map("user_id") @db.Uuid
+
+  input             Json
+  progress          Json?           @default("{}")
+  result            Json?
+  errorMessage      String?         @map("error_message") @db.Text
+  errorCode         String?         @map("error_code") @db.VarChar(50)
+
+  inputTokens       Int?            @map("input_tokens")
+  outputTokens      Int?            @map("output_tokens")
+  estimatedCostCts  Int?            @map("estimated_cost_cts")
+
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  startedAt         DateTime?       @map("started_at") @db.Timestamptz
+  finishedAt        DateTime?       @map("finished_at") @db.Timestamptz
+
+  @@index([specificationWid, status])
+  @@index([userId, createdAt])
+  @@map("waka_spec_ai_jobs")
 }
 
 model WakaSpecAIHistory {

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { BullModule } from '@nestjs/bullmq';
 import { APP_GUARD } from '@nestjs/core';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { HealthModule } from './health/health.module.js';
@@ -22,6 +23,18 @@ import { AiModule } from './modules/ai/ai.module.js';
           limit: config.get<number>('THROTTLE_LIMIT', 500),
         },
       ],
+    }),
+    BullModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        connection: {
+          host: config.get<string>('VALKEY_HOST', 'localhost'),
+          port: config.get<number>('VALKEY_PORT', 6379),
+          username: config.get<string>('VALKEY_USERNAME') || undefined,
+          password: config.get<string>('VALKEY_PASSWORD') || undefined,
+          tls: config.get<string>('VALKEY_TLS') === 'true' ? {} : undefined,
+        },
+      }),
     }),
     PrismaModule,
     HealthModule,

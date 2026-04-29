@@ -78,3 +78,18 @@ pnpm lint         # ESLint
 - Integration IA via Anthropic SDK (@anthropic-ai/sdk)
 - Le BFF route `/api/proxy/specs/*` vers ce service
 - Tables : `waka_spec_template*`, `waka_specification`, `waka_spec_chapter_content`, `waka_spec_ai_history`
+
+## Documentation Wakastart de reference
+
+Ces fichiers sont des exports Markdown figes depuis Google Drive et sont auto-charges
+a l'ouverture du module via les `@`-references ci-dessous. Ils decrivent l'ecosysteme
+Wakastart au-dela de ce que ce service implemente (plateforme, methodologie, module
+WakaProject, referentiel des pratiques internes).
+
+Source de verite : Google Drive. Procedure de resync : voir `docs/wakastart/README.md`.
+
+@docs/wakastart/README.md
+@docs/wakastart/descriptif-plateforme-wakastart.md
+@docs/wakastart/methodologie-waka-creation-pack.md
+@docs/wakastart/referentiel-pratiques-waka.md
+@docs/wakastart/wakaproject-module.md
