@@ -12,16 +12,25 @@ export class AiJobResponseDto {
   @ApiProperty({ enum: EnumAiJobStatus, description: 'Statut courant du job' })
   declare status: EnumAiJobStatus;
 
-  @ApiPropertyOptional({ description: 'Progression du job (RUNNING uniquement)' })
+  @ApiPropertyOptional({
+    description: 'Progression du job (RUNNING uniquement). Pour VENTILATE_SUBCHAPTERS : { currentStep, totalSteps, phase, currentSubChapterTitle }',
+  })
   progress?: Record<string, unknown> | null;
 
-  @ApiPropertyOptional({ description: 'Résultat du job (SUCCEEDED uniquement)' })
+  @ApiPropertyOptional({
+    description: [
+      'Resultat du job (SUCCEEDED uniquement).',
+      'Pour VENTILATE : { chapters: [{ chapterWid, content }] }.',
+      'Pour VENTILATE_SUBCHAPTERS : { subChapters: [{ wid, subChapterL1Wid, subChapterL2Wid, title, content, progress, order }] }.',
+      'Ce champ est mis a jour au fil de l eau (polling-friendly).',
+    ].join(' '),
+  })
   result?: Record<string, unknown> | null;
 
   @ApiPropertyOptional({ description: "Message d'erreur (FAILED uniquement)" })
   errorMessage?: string | null;
 
-  @ApiPropertyOptional({ description: 'Code erreur classifié (FAILED uniquement)' })
+  @ApiPropertyOptional({ description: 'Code erreur classifie (FAILED uniquement)' })
   errorCode?: string | null;
 }
 

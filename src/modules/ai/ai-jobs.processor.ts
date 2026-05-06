@@ -9,6 +9,7 @@ import {
   AIAction,
   EnumAiJobStatus,
   WakaSpecChapterContent,
+  WakaSpecSubChapterContent,
 } from '@prisma/client';
 import { PROMPT_VERSION } from './prompts/suggest-questions.prompt.js';
 
@@ -68,6 +69,8 @@ export class AiJobsProcessor extends WorkerHost {
 
     if (job.name === 'ventilate') {
       await this.processVentilate(jobWid);
+    } else if (job.name === 'ventilate-subchapters') {
+      await this.processVentilateSubChapters(jobWid);
     } else {
       this.logger.warn(`Unknown job name: ${job.name} — skipping`);
     }
@@ -279,6 +282,329 @@ export class AiJobsProcessor extends WorkerHost {
       // Rethrow pour que BullMQ logge l'erreur
       throw error;
     }
+  }
+
+  private async processVentilateSubChapters(jobWid: string): Promise<void> {
+    const dbJob = await this.prisma.wakaSpecAiJob.findUnique({
+      where: { wid: jobWid },
+    });
+
+    if (!dbJob) {
+      this.logger.error(`Job ${jobWid} not found in DB — aborting`);
+      return;
+    }
+
+    if (dbJob.status === EnumAiJobStatus.CANCELLED) {
+      this.logger.log(`Job ${jobWid} already CANCELLED — aborting`);
+      return;
+    }
+
+    await this.prisma.wakaSpecAiJob.update({
+      where: { wid: jobWid },
+      data: { status: EnumAiJobStatus.RUNNING, startedAt: new Date() },
+    });
+
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+
+    try {
+      const input = dbJob.input as {
+        specificationWid: string;
+        chapterWid: string;
+        chapterContentId: number;
+        userId: string;
+      };
+
+      // Charger la spec avec template sous-chapitres et le contenu du chapitre parent
+      const specification = await this.prisma.wakaSpecification.findUnique({
+        where: { wid: input.specificationWid },
+        include: {
+          template: {
+            include: {
+              chapters: {
+                include: {
+                  subChaptersL1: {
+                    include: { subChaptersL2: true },
+                    orderBy: { order: 'asc' },
+                  },
+                },
+                orderBy: { order: 'asc' },
+              },
+            },
+          },
+        },
+      });
+
+      if (!specification) {
+        throw new Error(`Specification ${input.specificationWid} not found`);
+      }
+
+      const chapterContent = await this.prisma.wakaSpecChapterContent.findUnique({
+        where: { id: input.chapterContentId },
+      });
+
+      if (!chapterContent) {
+        throw new Error(`ChapterContent ${input.chapterContentId} not found`);
+      }
+
+      const templateChapter = specification.template.chapters.find(
+        (ch) => ch.wid === input.chapterWid,
+      );
+
+      if (!templateChapter || templateChapter.subChaptersL1.length === 0) {
+        throw new Error(
+          `Template chapter ${input.chapterWid} has no sub-chapters to ventilate into`,
+        );
+      }
+
+      const megaPrompt = specification.template.megaPrompt;
+      const parentContent = chapterContent.content ?? '';
+
+      // Construire la liste à plat des sous-chapitres à extraire
+      // Format : [ { l1Wid, l2Wid|null, title, order } ]
+      // subChapterL2Wid utilise '' (non-null) quand il n'y a pas de niveau L2
+      // afin de garantir l'unicité composite en PostgreSQL
+      const subChapterSlots: Array<{
+        l1Wid: string;
+        l2Wid: string;
+        title: string;
+        order: number;
+      }> = [];
+
+      let orderIndex = 0;
+      for (const l1 of templateChapter.subChaptersL1) {
+        if (l1.subChaptersL2.length === 0) {
+          subChapterSlots.push({
+            l1Wid: l1.wid,
+            l2Wid: '',
+            title: l1.title,
+            order: orderIndex++,
+          });
+        } else {
+          for (const l2 of l1.subChaptersL2) {
+            subChapterSlots.push({
+              l1Wid: l1.wid,
+              l2Wid: l2.wid,
+              title: `${l1.title} — ${l2.title}`,
+              order: orderIndex++,
+            });
+          }
+        }
+      }
+
+      const totalSteps = subChapterSlots.length;
+      const persistedSubChapters: WakaSpecSubChapterContent[] = [];
+
+      // Construire le prompt de ventilation
+      const subChapterList = subChapterSlots
+        .map((s, i) => `${i + 1}. ${s.title}`)
+        .join('\n');
+
+      const systemPrompt = `${megaPrompt}\n\nTu es un expert en rédaction de spécifications fonctionnelles. Tu dois ventiler le contenu d'un chapitre parent en sections distinctes correspondant aux sous-chapitres attendus du template.`;
+
+      const userMessage = `Voici le contenu du chapitre "${chapterContent.chapterTitle}" à ventiler :\n\n<contenu_parent>\n${parentContent}\n</contenu_parent>\n\nSous-chapitres attendus (un bloc JSON par sous-chapitre) :\n${subChapterList}\n\nRetourne UNIQUEMENT un tableau JSON valide (sans texte autour) de la forme :\n[\n  { "index": 1, "content": "..." },\n  { "index": 2, "content": "..." }\n]\n\nChaque "content" doit contenir le texte extrait et reformulé du chapitre parent correspondant au sous-chapitre. Si le contenu parent ne couvre pas un sous-chapitre, laisse "content" vide ("").`;
+
+      // Check annulation avant l'appel Claude
+      const freshJob = await this.prisma.wakaSpecAiJob.findUnique({
+        where: { wid: jobWid },
+        select: { status: true },
+      });
+      if (freshJob?.status === EnumAiJobStatus.CANCELLED) {
+        throw new JobCancelledError(jobWid);
+      }
+
+      await this.prisma.wakaSpecAiJob.update({
+        where: { wid: jobWid },
+        data: {
+          progress: { currentStep: 0, totalSteps, phase: 'ventilation' },
+        },
+      });
+
+      // Appel Claude unique pour ventiler tout le contenu d'un coup
+      const { text, inputTokens, outputTokens } = await this.callClaudeWithTokens(
+        systemPrompt,
+        userMessage,
+      );
+      totalInputTokens += inputTokens;
+      totalOutputTokens += outputTokens;
+
+      // Parser la réponse JSON
+      let ventilatedContent: Array<{ index: number; content: string }> = [];
+      try {
+        const jsonMatch = text.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          ventilatedContent = JSON.parse(jsonMatch[0]);
+        }
+      } catch (parseError) {
+        this.logger.error(
+          `Job ${jobWid}: failed to parse ventilation JSON — raw: ${text.slice(0, 500)}`,
+        );
+        throw new Error(`Failed to parse sub-chapter ventilation response: ${parseError}`);
+      }
+
+      // Persister les sous-chapitres au fil de l'eau (UPSERT)
+      for (let i = 0; i < subChapterSlots.length; i++) {
+        const slot = subChapterSlots[i];
+        const ventilated = ventilatedContent.find((v) => v.index === i + 1);
+        const subContent = ventilated?.content?.trim() ?? '';
+
+        // Score simple basé sur la longueur (évite un appel Claude par sous-chapitre)
+        const IS_FILLED_THRESHOLD = 30;
+        const progress = subContent.length === 0
+          ? 0
+          : subContent.length < 50
+            ? 5
+            : Math.min(80, Math.round(subContent.length / 50));
+
+        const upserted = await this.prisma.wakaSpecSubChapterContent.upsert({
+          where: {
+            chapterContentId_subChapterL1Wid_subChapterL2Wid: {
+              chapterContentId: input.chapterContentId,
+              subChapterL1Wid: slot.l1Wid,
+              subChapterL2Wid: slot.l2Wid,
+            },
+          },
+          create: {
+            specificationId: specification.id,
+            chapterContentId: input.chapterContentId,
+            subChapterL1Wid: slot.l1Wid,
+            subChapterL2Wid: slot.l2Wid,
+            title: slot.title,
+            content: subContent || null,
+            progress,
+            order: slot.order,
+          },
+          update: {
+            title: slot.title,
+            content: subContent || null,
+            progress,
+          },
+        });
+
+        persistedSubChapters.push(upserted);
+
+        // Mise à jour progress du job
+        await this.prisma.wakaSpecAiJob.update({
+          where: { wid: jobWid },
+          data: {
+            progress: {
+              currentStep: i + 1,
+              totalSteps,
+              phase: 'persist',
+              currentSubChapterTitle: slot.title,
+            },
+            result: {
+              subChapters: persistedSubChapters.map((sc) => ({
+                wid: sc.wid,
+                subChapterL1Wid: sc.subChapterL1Wid,
+                subChapterL2Wid: sc.subChapterL2Wid,
+                title: sc.title,
+                content: sc.content,
+                progress: sc.progress,
+                order: sc.order,
+              })),
+            },
+          },
+        });
+
+        // Log d'historique IA (un seul pour le chapitre, pas un par sous-chapitre)
+        if (i === 0) {
+          await this.prisma.wakaSpecAIHistory.create({
+            data: {
+              specificationId: specification.id,
+              chapterWid: input.chapterWid,
+              action: AIAction.VENTILATE,
+              userInstruction: `Ventilation en ${totalSteps} sous-chapitres`,
+              aiResponse: text,
+              userId: input.userId,
+              modelUsed: this.aiService.model,
+              megaPromptSnapshot: megaPrompt,
+              chapterPromptSnapshot: templateChapter.prompt,
+              promptVersion: PROMPT_VERSION,
+            },
+          });
+        }
+      }
+
+      // Recalcul progression globale
+      await this.recalculateProgress(specification.id);
+
+      const estimatedCostCts = computeCostCts(totalInputTokens, totalOutputTokens);
+
+      await this.prisma.wakaSpecAiJob.update({
+        where: { wid: jobWid },
+        data: {
+          status: EnumAiJobStatus.SUCCEEDED,
+          finishedAt: new Date(),
+          inputTokens: totalInputTokens,
+          outputTokens: totalOutputTokens,
+          estimatedCostCts,
+          progress: { currentStep: totalSteps, totalSteps, phase: 'done' },
+          result: {
+            subChapters: persistedSubChapters.map((sc) => ({
+              wid: sc.wid,
+              subChapterL1Wid: sc.subChapterL1Wid,
+              subChapterL2Wid: sc.subChapterL2Wid,
+              title: sc.title,
+              content: sc.content,
+              progress: sc.progress,
+              order: sc.order,
+            })),
+          },
+        },
+      });
+
+      this.logger.log(
+        `Job ${jobWid}: VENTILATE_SUBCHAPTERS SUCCEEDED — ${totalSteps} sub-chapters, ${totalInputTokens} in, ${totalOutputTokens} out, ~${estimatedCostCts}cts`,
+      );
+    } catch (error) {
+      if (error instanceof JobCancelledError) {
+        await this.prisma.wakaSpecAiJob.update({
+          where: { wid: jobWid },
+          data: {
+            status: EnumAiJobStatus.CANCELLED,
+            finishedAt: new Date(),
+            inputTokens: totalInputTokens,
+            outputTokens: totalOutputTokens,
+          },
+        });
+        this.logger.log(`Job ${jobWid}: CANCELLED during processVentilateSubChapters`);
+        return;
+      }
+
+      const errorCode = classifyAnthropicError(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      await this.prisma.wakaSpecAiJob.update({
+        where: { wid: jobWid },
+        data: {
+          status: EnumAiJobStatus.FAILED,
+          finishedAt: new Date(),
+          errorCode,
+          errorMessage,
+          inputTokens: totalInputTokens,
+          outputTokens: totalOutputTokens,
+        },
+      });
+
+      this.logger.error(
+        `Job ${jobWid}: VENTILATE_SUBCHAPTERS FAILED — errorCode=${errorCode} error=${errorMessage}`,
+      );
+      throw error;
+    }
+  }
+
+  private async recalculateProgress(specificationId: number): Promise<void> {
+    const chapters = await this.prisma.wakaSpecChapterContent.findMany({
+      where: { specificationId },
+    });
+    const total = chapters.length;
+    const sum = chapters.reduce((acc, ch) => acc + ch.progress, 0);
+    const globalProgress = total > 0 ? Math.round(sum / total) : 0;
+    await this.prisma.wakaSpecification.update({
+      where: { id: specificationId },
+      data: { globalProgress },
+    });
   }
 
   private async callClaudeWithTokens(
