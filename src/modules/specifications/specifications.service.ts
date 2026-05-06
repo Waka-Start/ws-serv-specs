@@ -30,6 +30,11 @@ export class SpecificationsService {
       include: {
         chapters: {
           orderBy: { chapterOrder: 'asc' },
+          include: {
+            subChapters: {
+              orderBy: { order: 'asc' },
+            },
+          },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -42,6 +47,11 @@ export class SpecificationsService {
       include: {
         chapters: {
           orderBy: { chapterOrder: 'asc' },
+          include: {
+            subChapters: {
+              orderBy: { order: 'asc' },
+            },
+          },
         },
       },
     });
@@ -86,6 +96,9 @@ export class SpecificationsService {
         include: {
           chapters: {
             orderBy: { chapterOrder: 'asc' },
+            include: {
+              subChapters: { orderBy: { order: 'asc' } },
+            },
           },
         },
       });
@@ -105,6 +118,9 @@ export class SpecificationsService {
       include: {
         chapters: {
           orderBy: { chapterOrder: 'asc' },
+          include: {
+            subChapters: { orderBy: { order: 'asc' } },
+          },
         },
       },
     });
@@ -300,6 +316,9 @@ export class SpecificationsService {
       include: {
         chapters: {
           orderBy: { chapterOrder: 'asc' },
+          include: {
+            subChapters: { orderBy: { order: 'asc' } },
+          },
         },
       },
     });
