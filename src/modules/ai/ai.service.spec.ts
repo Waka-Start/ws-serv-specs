@@ -1,25 +1,93 @@
+// Mocks virtuels pour les packages non hoistables en mode pnpm strict.
+// PrismaService est fourni en tant que mockPrismaService (useValue), donc
+// les modules réels ne sont jamais instanciés — seules les typographies importées le sont.
+
+jest.mock('pg', () => ({ Pool: jest.fn() }), { virtual: true });
+jest.mock('@prisma/adapter-pg', () => ({ PrismaPg: jest.fn() }), { virtual: true });
+jest.mock(
+  '@nestjs/bullmq',
+  () => {
+    // InjectQueue doit injecter via le token 'BullQueue_<name>'
+    // On réutilise Inject de @nestjs/common (disponible via pnpm hoist)
+    const { Inject } = jest.requireActual('@nestjs/common');
+    return {
+      InjectQueue: (name: string) => Inject(`BullQueue_${name}`),
+      getQueueToken: (name: string) => `BullQueue_${name}`,
+    };
+  },
+  { virtual: true },
+);
+jest.mock('bullmq', () => ({ Queue: jest.fn() }), { virtual: true });
+
+// Mock @prisma/client avant tous les imports (pnpm strict — virtual mock)
+jest.mock(
+  '@prisma/client',
+  () => ({
+    AIAction: {
+      VENTILATE: 'VENTILATE',
+      GENERATE: 'GENERATE',
+      MODIFY: 'MODIFY',
+      DELETE: 'DELETE',
+    },
+    EnumAiJobStatus: {
+      PENDING: 'PENDING',
+      RUNNING: 'RUNNING',
+      SUCCEEDED: 'SUCCEEDED',
+      FAILED: 'FAILED',
+      CANCELLED: 'CANCELLED',
+    },
+    EnumAiJobType: {
+      VENTILATE: 'VENTILATE',
+      VENTILATE_SUBCHAPTERS: 'VENTILATE_SUBCHAPTERS',
+      GENERATE_CHAPTER: 'GENERATE_CHAPTER',
+      MODIFY: 'MODIFY',
+    },
+    PrismaClient: jest.fn(),
+  }),
+  { virtual: true },
+);
+
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { NotFoundException } from '@nestjs/common';
 import { AiService } from './ai.service';
 import { PrismaService } from '../../prisma/prisma.service';
 
-// Mock Anthropic SDK
+// BullMQ inject token without importing @nestjs/bullmq to avoid pnpm hoist issues in tests
+// Format matches getQueueToken('ai-jobs') output from @nestjs/bullmq
+const AI_JOBS_QUEUE_TOKEN = 'BullQueue_ai-jobs';
+
+// Mock BullMQ Queue
+const mockQueueAdd = jest.fn().mockResolvedValue({});
+const mockQueue = { add: mockQueueAdd };
+
+// Mock Anthropic SDK (virtual: true pour pnpm strict mode où le module n'est pas hoistable)
 const mockMessagesCreate = jest.fn().mockResolvedValue({
   content: [{ type: 'text', text: 'Generated AI content' }],
   stop_reason: 'end_turn',
 });
 
-jest.mock('@anthropic-ai/sdk', () => {
-  return {
-    __esModule: true,
-    default: jest.fn().mockImplementation(() => ({
-      messages: {
-        create: mockMessagesCreate,
+jest.mock(
+  '@anthropic-ai/sdk',
+  () => {
+    return {
+      __esModule: true,
+      default: jest.fn().mockImplementation(() => ({
+        messages: {
+          create: mockMessagesCreate,
+        },
+      })),
+      APIError: class APIError extends Error {
+        status: number;
+        constructor(status: number, message: string) {
+          super(message);
+          this.status = status;
+        }
       },
-    })),
-  };
-});
+    };
+  },
+  { virtual: true },
+);
 
 const mockPrismaService = {
   wakaSpecification: {
@@ -34,6 +102,11 @@ const mockPrismaService = {
   wakaSpecAIHistory: {
     create: jest.fn(),
     findMany: jest.fn(),
+  },
+  wakaSpecAiJob: {
+    findFirst: jest.fn(),
+    findUnique: jest.fn(),
+    create: jest.fn().mockResolvedValue({ wid: 'job-wid-1' }),
   },
 };
 
@@ -65,18 +138,39 @@ function setupEvaluateMocksEmpty(
     chapterWid,
     content: '',
     progress: 0,
+    isFilled: false,
   });
   // updateChapterEvaluation : update + recalculate
   prisma.wakaSpecChapterContent.update.mockResolvedValueOnce({
     id: 10,
+    wid: 'ch-content-wid',
     chapterWid,
+    chapterTitle: 'Chapter 1',
     content: '',
     progress: 0,
-    evaluationDetails: { score: 0 },
-    evaluatedAt: new Date(),
+    isFilled: false,
+    evaluationDetails: null,
+    evaluatedAt: null,
   });
-  prisma.wakaSpecChapterContent.findMany.mockResolvedValueOnce([{ progress: 0 }]);
+  prisma.wakaSpecChapterContent.findMany.mockResolvedValueOnce([{ progress: 0, isFilled: false }]);
   prisma.wakaSpecification.update.mockResolvedValueOnce({});
+}
+
+// Helper : configure les mocks pour buildGenerateChapterResponse
+// (appelé après evaluateChapterInternal dans generateChapter)
+function setupBuildGenerateResponseMocks(
+  prisma: typeof mockPrismaService,
+  specId: number,
+) {
+  // findMany pour filled/total
+  prisma.wakaSpecChapterContent.findMany.mockResolvedValueOnce([
+    { progress: 0, isFilled: false },
+  ]);
+  // findUnique spec pour globalProgress
+  prisma.wakaSpecification.findUnique.mockResolvedValueOnce({
+    id: specId,
+    globalProgress: 0,
+  });
 }
 
 describe('AiService', () => {
@@ -85,6 +179,8 @@ describe('AiService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockQueueAdd.mockResolvedValue({});
+    mockPrismaService.wakaSpecAiJob.create.mockResolvedValue({ wid: 'job-wid-1' });
     mockMessagesCreate.mockResolvedValue({
       content: [{ type: 'text', text: 'Generated AI content' }],
       stop_reason: 'end_turn',
@@ -106,6 +202,7 @@ describe('AiService', () => {
         AiService,
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: ConfigService, useValue: mockConfigService },
+        { provide: AI_JOBS_QUEUE_TOKEN, useValue: mockQueue },
       ],
     }).compile();
 
@@ -116,130 +213,48 @@ describe('AiService', () => {
   // ── ventilate ───────────────────────────────────────────────────
 
   describe('ventilate', () => {
-    const makeSpec = (chapterCount = 2) => ({
-      id: 1,
-      wid: 'spec-1',
-      template: {
-        megaPrompt: 'You are a spec writer',
-        chapters: Array.from({ length: chapterCount }, (_, i) => ({
-          wid: `ch-${i}`,
-          title: `Chapter ${i}`,
-          order: i,
-          prompt: `Write chapter ${i}`,
-        })),
-      },
-      chapters: Array.from({ length: chapterCount }, (_, i) => ({
-        id: 10 + i,
-        chapterWid: `ch-${i}`,
-        content: null,
-        progress: 0,
-      })),
-    });
+    // service.ventilate() crée un job en DB puis l'enfile dans BullMQ.
+    // L'appel Claude est délégué au processor (AiJobsProcessor) — pas testé ici.
 
-    it('should call Claude for each chapter in parallel', async () => {
-      const spec = makeSpec(2);
-      // First findUnique for ventilate
-      prisma.wakaSpecification.findUnique.mockResolvedValueOnce(spec);
-      prisma.wakaSpecChapterContent.update.mockResolvedValue({});
-      prisma.wakaSpecAIHistory.create.mockResolvedValue({});
+    it('should create a job in DB and enqueue it in BullMQ', async () => {
+      prisma.wakaSpecification.findUnique.mockResolvedValueOnce({ id: 1, wid: 'spec-1' });
+      prisma.wakaSpecAiJob.findFirst.mockResolvedValueOnce(null); // pas de job en cours
+      prisma.wakaSpecAiJob.create.mockResolvedValueOnce({ wid: 'job-wid-1' });
 
-      // evaluateAllChaptersInternal: findMany chapters
-      prisma.wakaSpecChapterContent.findMany.mockResolvedValueOnce([
-        { id: 10, chapterWid: 'ch-0', content: '', progress: 0 },
-        { id: 11, chapterWid: 'ch-1', content: '', progress: 0 },
-      ]);
-
-      // For each chapter evaluation (rule-based empty):
-      for (let i = 0; i < 2; i++) {
-        prisma.wakaSpecification.findUnique.mockResolvedValueOnce({
-          id: 1,
-          template: { chapters: [] },
-        });
-        prisma.wakaSpecChapterContent.findFirst.mockResolvedValueOnce({
-          id: 10 + i,
-          chapterWid: `ch-${i}`,
-          content: '',
-          progress: 0,
-        });
-        prisma.wakaSpecChapterContent.update.mockResolvedValueOnce({ id: 10 + i, progress: 0 });
-        prisma.wakaSpecChapterContent.findMany.mockResolvedValueOnce([{ progress: 0 }, { progress: 0 }]);
-        prisma.wakaSpecification.update.mockResolvedValueOnce({});
-      }
-
-      // Final findUnique for return value
-      prisma.wakaSpecification.findUnique.mockResolvedValueOnce({ ...spec, globalProgress: 0 });
-
-      await service.ventilate({
+      const result = await service.ventilate({
         specificationWid: 'spec-1',
         initialText: 'My project description',
-        userId: 'user-1',
+        userId: 'user-uuid-1',
       });
 
-      // Each chapter should trigger an update and a history entry
-      expect(prisma.wakaSpecAIHistory.create).toHaveBeenCalledTimes(2);
-    });
-
-    it('should update chapter contents with AI responses', async () => {
-      const spec = makeSpec(1);
-      prisma.wakaSpecification.findUnique.mockResolvedValueOnce(spec);
-      prisma.wakaSpecChapterContent.update.mockResolvedValue({});
-      prisma.wakaSpecAIHistory.create.mockResolvedValue({});
-
-      // evaluateAllChaptersInternal
-      prisma.wakaSpecChapterContent.findMany.mockResolvedValueOnce([
-        { id: 10, chapterWid: 'ch-0', content: '', progress: 0 },
-      ]);
-      setupEvaluateMocksEmpty(prisma, 1, 'ch-0');
-
-      // Final return
-      prisma.wakaSpecification.findUnique.mockResolvedValueOnce(spec);
-
-      await service.ventilate({
-        specificationWid: 'spec-1',
-        initialText: 'Text',
-        userId: 'user-1',
-      });
-
-      // Content update (without progress — handled by evaluation now)
-      expect(prisma.wakaSpecChapterContent.update).toHaveBeenCalledWith(
+      expect(prisma.wakaSpecAiJob.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 10 },
-          data: {
-            content: 'Generated AI content',
-          },
+          data: expect.objectContaining({
+            type: 'VENTILATE',
+            status: 'PENDING',
+            specificationWid: 'spec-1',
+          }),
         }),
       );
+      expect(mockQueueAdd).toHaveBeenCalledWith(
+        'ventilate',
+        { jobWid: 'job-wid-1' },
+        expect.any(Object),
+      );
+      expect(result).toEqual({ jobWid: 'job-wid-1', status: 'PENDING' });
     });
 
-    it('should log AI history for each chapter', async () => {
-      const spec = makeSpec(1);
-      prisma.wakaSpecification.findUnique.mockResolvedValueOnce(spec);
-      prisma.wakaSpecChapterContent.update.mockResolvedValue({});
-      prisma.wakaSpecAIHistory.create.mockResolvedValue({});
+    it('should throw ConflictException when a VENTILATE job is already running', async () => {
+      prisma.wakaSpecification.findUnique.mockResolvedValueOnce({ id: 1, wid: 'spec-1' });
+      prisma.wakaSpecAiJob.findFirst.mockResolvedValueOnce({ wid: 'existing-job' });
 
-      // evaluateAllChaptersInternal
-      prisma.wakaSpecChapterContent.findMany.mockResolvedValueOnce([
-        { id: 10, chapterWid: 'ch-0', content: '', progress: 0 },
-      ]);
-      setupEvaluateMocksEmpty(prisma, 1, 'ch-0');
-
-      // Final return
-      prisma.wakaSpecification.findUnique.mockResolvedValueOnce(spec);
-
-      await service.ventilate({
-        specificationWid: 'spec-1',
-        initialText: 'Text',
-        userId: 'user-1',
-      });
-
-      expect(prisma.wakaSpecAIHistory.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          specificationId: 1,
-          chapterWid: 'ch-0',
-          action: 'VENTILATE',
-          userId: 'user-1',
+      await expect(
+        service.ventilate({
+          specificationWid: 'spec-1',
+          initialText: 'Text',
+          userId: 'user-uuid-1',
         }),
-      });
+      ).rejects.toThrow(expect.objectContaining({ message: expect.stringContaining('VENTILATE job') }));
     });
 
     it('should throw NotFoundException for unknown spec', async () => {
@@ -249,7 +264,69 @@ describe('AiService', () => {
         service.ventilate({
           specificationWid: 'unknown',
           initialText: 'Text',
-          userId: 'user-1',
+          userId: 'user-uuid-1',
+        }),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // ── ventilateSubChapters ─────────────────────────────────────────
+
+  describe('ventilateSubChapters', () => {
+    it('should create a VENTILATE_SUBCHAPTERS job and return jobId', async () => {
+      prisma.wakaSpecification.findUnique.mockResolvedValueOnce({ id: 1, wid: 'spec-1' });
+      prisma.wakaSpecChapterContent.findFirst.mockResolvedValueOnce({
+        id: 10,
+        chapterWid: 'ch-1',
+        content: 'Some content to ventilate',
+      });
+      prisma.wakaSpecAiJob.findFirst.mockResolvedValueOnce(null);
+      prisma.wakaSpecAiJob.create.mockResolvedValueOnce({ wid: 'sub-job-wid-1' });
+
+      const result = await service.ventilateSubChapters('ch-1', {
+        specificationWid: 'spec-1',
+        userId: 'user-uuid-1',
+      });
+
+      expect(prisma.wakaSpecAiJob.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            type: 'VENTILATE_SUBCHAPTERS',
+            status: 'PENDING',
+          }),
+        }),
+      );
+      expect(mockQueueAdd).toHaveBeenCalledWith(
+        'ventilate-subchapters',
+        { jobWid: 'sub-job-wid-1' },
+        expect.any(Object),
+      );
+      expect(result).toEqual({ jobId: 'sub-job-wid-1' });
+    });
+
+    it('should throw ConflictException when chapter has no content', async () => {
+      prisma.wakaSpecification.findUnique.mockResolvedValueOnce({ id: 1, wid: 'spec-1' });
+      prisma.wakaSpecChapterContent.findFirst.mockResolvedValueOnce({
+        id: 10,
+        chapterWid: 'ch-1',
+        content: '',
+      });
+
+      await expect(
+        service.ventilateSubChapters('ch-1', {
+          specificationWid: 'spec-1',
+          userId: 'user-uuid-1',
+        }),
+      ).rejects.toThrow(expect.objectContaining({ message: expect.stringContaining('no content') }));
+    });
+
+    it('should throw NotFoundException for unknown spec', async () => {
+      prisma.wakaSpecification.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.ventilateSubChapters('ch-1', {
+          specificationWid: 'unknown',
+          userId: 'user-uuid-1',
         }),
       ).rejects.toThrow(NotFoundException);
     });
@@ -289,6 +366,8 @@ describe('AiService', () => {
 
       // evaluateChapterInternal after generate
       setupEvaluateMocksEmpty(prisma, 1, 'ch-1');
+      // buildGenerateChapterResponse : filled/total + globalProgress
+      setupBuildGenerateResponseMocks(prisma, 1);
 
       const result = await service.generateChapter({
         specificationWid: 'spec-1',
@@ -296,8 +375,10 @@ describe('AiService', () => {
         userId: 'user-1',
       });
 
-      // evaluateChapterInternal returns the result of update (empty content → score 0)
+      // Le nouveau shape doit contenir chapter et progress
       expect(result).toBeDefined();
+      expect(result).toHaveProperty('chapter');
+      expect(result).toHaveProperty('progress');
     });
 
     it('should include existing content in context', async () => {
@@ -311,6 +392,7 @@ describe('AiService', () => {
       prisma.wakaSpecAIHistory.create.mockResolvedValue({});
 
       setupEvaluateMocksEmpty(prisma, 1, 'ch-1');
+      setupBuildGenerateResponseMocks(prisma, 1);
 
       await service.generateChapter({
         specificationWid: 'spec-1',
@@ -333,15 +415,17 @@ describe('AiService', () => {
       prisma.wakaSpecAIHistory.create.mockResolvedValue({});
 
       setupEvaluateMocksEmpty(prisma, 1, 'ch-1');
+      setupBuildGenerateResponseMocks(prisma, 1);
 
-      await service.generateChapter({
+      const result = await service.generateChapter({
         specificationWid: 'spec-1',
         chapterWid: 'ch-1',
         userId: 'user-1',
       });
 
-      // evaluateChapterInternal should have been called (spec findUnique called a 2nd time)
-      expect(prisma.wakaSpecification.findUnique).toHaveBeenCalledTimes(2);
+      // Le résultat doit avoir le nouveau shape avec progress global
+      expect(result.progress).toBeDefined();
+      expect(result.progress.total).toBe(1);
     });
 
     it('should throw NotFoundException for unknown spec', async () => {
@@ -713,6 +797,7 @@ describe('AiService', () => {
           AiService,
           { provide: PrismaService, useValue: mockPrismaService },
           { provide: ConfigService, useValue: mockConfigService },
+          { provide: AI_JOBS_QUEUE_TOKEN, useValue: mockQueue },
         ],
       }).compile();
 
@@ -739,6 +824,7 @@ describe('AiService', () => {
           AiService,
           { provide: PrismaService, useValue: mockPrismaService },
           { provide: ConfigService, useValue: mockConfigService },
+          { provide: AI_JOBS_QUEUE_TOKEN, useValue: mockQueue },
         ],
       }).compile();
 

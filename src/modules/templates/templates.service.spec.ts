@@ -1,3 +1,8 @@
+// Mocks virtuels pnpm strict
+jest.mock('pg', () => ({ Pool: jest.fn() }), { virtual: true });
+jest.mock('@prisma/adapter-pg', () => ({ PrismaPg: jest.fn() }), { virtual: true });
+jest.mock('@prisma/client', () => ({ PrismaClient: jest.fn() }), { virtual: true });
+
 import { Test, TestingModule } from '@nestjs/testing';
 import { TemplatesService } from './templates.service';
 import { PrismaService } from '../../prisma/prisma.service';
