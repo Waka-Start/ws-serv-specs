@@ -42,10 +42,13 @@ function classifyAnthropicError(error: unknown): string {
   return 'INTERNAL';
 }
 
-// Shape intermédiaire retourné par ventilateSubChaptersForChapter
+// Shape intermédiaire retourné par ventilateSubChaptersForChapter.
+// chapterWid = WID du template chapter parent ; nécessaire côté frontend
+// pour ranger chaque sous-chapitre sous le bon chapitre parent.
 interface VentilatedSubChaptersResult {
   subChapters: Array<{
     wid: string;
+    chapterWid: string;
     subChapterL1Wid: string;
     subChapterL2Wid: string;
     title: string;
@@ -175,6 +178,7 @@ export class AiJobsProcessor extends WorkerHost {
       }> = [];
       const allSubChapterResults: Array<{
         wid: string;
+        chapterWid: string;
         subChapterL1Wid: string;
         subChapterL2Wid: string;
         title: string;
@@ -749,6 +753,7 @@ export class AiJobsProcessor extends WorkerHost {
     return {
       subChapters: persistedSubChapters.map((sc) => ({
         wid: sc.wid,
+        chapterWid: params.chapterWid,
         subChapterL1Wid: sc.subChapterL1Wid,
         subChapterL2Wid: sc.subChapterL2Wid,
         title: sc.title,
