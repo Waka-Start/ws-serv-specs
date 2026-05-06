@@ -12,6 +12,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { AIAction, EnumAiJobStatus, EnumAiJobType } from '@prisma/client';
 import { VentilateDto } from './dto/ventilate.dto.js';
 import { GenerateChapterDto } from './dto/generate-chapter.dto.js';
+import { GenerateChapterResponseDto } from './dto/generate-chapter-response.dto.js';
 import { ModifyContentDto } from './dto/modify-content.dto.js';
 import { DeleteContentDto } from './dto/delete-content.dto.js';
 import { TestPromptDto } from './dto/test-prompt.dto.js';
@@ -125,7 +126,86 @@ export class AiService {
     return { jobWid: job.wid, status: EnumAiJobStatus.PENDING };
   }
 
-  async generateChapter(dto: GenerateChapterDto) {
+  async ventilateSubChapters(
+    chapterWid: string,
+    dto: { specificationWid: string; userId: string },
+  ): Promise<{ jobId: string }> {
+    // Vérifier que la specification existe et que le chapitre a du contenu
+    const specification = await this.prisma.wakaSpecification.findUnique({
+      where: { wid: dto.specificationWid },
+    });
+
+    if (!specification) {
+      throw new NotFoundException(
+        `Specification ${dto.specificationWid} not found`,
+      );
+    }
+
+    const chapterContent = await this.prisma.wakaSpecChapterContent.findFirst({
+      where: { specificationId: specification.id, chapterWid },
+    });
+
+    if (!chapterContent) {
+      throw new NotFoundException(
+        `Chapter ${chapterWid} not found in specification ${dto.specificationWid}`,
+      );
+    }
+
+    if (!chapterContent.content?.trim()) {
+      throw new ConflictException(
+        `Chapter ${chapterWid} has no content to ventilate into sub-chapters`,
+      );
+    }
+
+    // Anti-doublon : un seul job VENTILATE_SUBCHAPTERS actif par chapitre
+    const existingJob = await this.prisma.wakaSpecAiJob.findFirst({
+      where: {
+        specificationWid: dto.specificationWid,
+        type: EnumAiJobType.VENTILATE_SUBCHAPTERS,
+        status: { in: [EnumAiJobStatus.PENDING, EnumAiJobStatus.RUNNING] },
+      },
+    });
+
+    if (existingJob) {
+      throw new ConflictException(
+        `A VENTILATE_SUBCHAPTERS job is already PENDING or RUNNING for specification ${dto.specificationWid} (jobWid=${existingJob.wid})`,
+      );
+    }
+
+    const job = await this.prisma.wakaSpecAiJob.create({
+      data: {
+        type: EnumAiJobType.VENTILATE_SUBCHAPTERS,
+        status: EnumAiJobStatus.PENDING,
+        specificationWid: dto.specificationWid,
+        userId: dto.userId,
+        input: {
+          specificationWid: dto.specificationWid,
+          chapterWid,
+          chapterContentId: chapterContent.id,
+          userId: dto.userId,
+        },
+      },
+    });
+
+    await this.aiJobsQueue.add(
+      'ventilate-subchapters',
+      { jobWid: job.wid },
+      {
+        jobId: job.wid,
+        attempts: 1,
+        removeOnComplete: { count: 100 },
+        removeOnFail: { count: 100 },
+      },
+    );
+
+    this.logger.log(
+      `ventilateSubChapters: job created — jobWid=${job.wid} chapterWid=${chapterWid} specificationWid=${dto.specificationWid}`,
+    );
+
+    return { jobId: job.wid };
+  }
+
+  async generateChapter(dto: GenerateChapterDto): Promise<GenerateChapterResponseDto> {
     // Sanitize userInstruction : trim + cap à 20 000 chars pour éviter un prompt explosé
     const MAX_USER_INSTRUCTION_CHARS = 20_000;
     const sanitizedInstruction = dto.userInstruction?.trim()
@@ -255,7 +335,64 @@ export class AiService {
       },
     });
 
-    return this.evaluateChapterInternal(specification.id, dto.chapterWid);
+    return this.buildGenerateChapterResponse(specification.id, dto.chapterWid);
+  }
+
+  private async buildGenerateChapterResponse(
+    specificationId: number,
+    chapterWid: string,
+  ): Promise<GenerateChapterResponseDto> {
+    const updatedChapterContent = await this.evaluateChapterInternal(specificationId, chapterWid);
+
+    if (!updatedChapterContent) {
+      throw new NotFoundException(`Chapter ${chapterWid} not found after evaluation`);
+    }
+
+    // Récupérer tous les chapitres pour le calcul filled/total/percent
+    const allChapters = await this.prisma.wakaSpecChapterContent.findMany({
+      where: { specificationId },
+    });
+
+    const spec = await this.prisma.wakaSpecification.findUnique({
+      where: { id: specificationId },
+      select: { globalProgress: true },
+    });
+
+    const filled = allChapters.filter((ch) => ch.isFilled).length;
+    const total = allChapters.length;
+    const percent = spec?.globalProgress ?? 0;
+
+    const evalDetails = updatedChapterContent.evaluationDetails as {
+      score: number;
+      coveredTopics: string[];
+      missingTopics: string[];
+      feedback: string;
+    } | null;
+
+    return {
+      chapter: {
+        wid: updatedChapterContent.wid,
+        chapterWid: updatedChapterContent.chapterWid,
+        chapterTitle: updatedChapterContent.chapterTitle,
+        content: updatedChapterContent.content ?? '',
+        progress: updatedChapterContent.progress,
+        isFilled: updatedChapterContent.isFilled,
+        evaluationDetails: evalDetails
+          ? {
+              score: evalDetails.score,
+              coveredTopics: evalDetails.coveredTopics,
+              missingTopics: evalDetails.missingTopics,
+              feedback: evalDetails.feedback,
+            }
+          : null,
+        evaluatedAt: updatedChapterContent.evaluatedAt?.toISOString() ?? null,
+      },
+      progress: {
+        filled,
+        total,
+        percent,
+      },
+    };
   }
 
   async modifyContent(dto: ModifyContentDto) {
@@ -660,10 +797,13 @@ export class AiService {
     specificationId: number,
     evaluation: ChapterEvaluationDetails,
   ) {
+    const IS_FILLED_THRESHOLD = 30;
+
     const updated = await this.prisma.wakaSpecChapterContent.update({
       where: { id: chapterContentId },
       data: {
         progress: evaluation.score,
+        isFilled: evaluation.score >= IS_FILLED_THRESHOLD,
         evaluationDetails: evaluation as any,
         evaluatedAt: new Date(),
       },

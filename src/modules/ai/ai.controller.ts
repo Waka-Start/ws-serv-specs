@@ -1,9 +1,10 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, UseGuards } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiSecurity, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiParam, ApiResponse, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { ApiKeyGuard } from '../../common/guards/api-key.guard.js';
 import { AiService } from './ai.service.js';
 import { VentilateDto } from './dto/ventilate.dto.js';
 import { GenerateChapterDto } from './dto/generate-chapter.dto.js';
+import { GenerateChapterResponseDto } from './dto/generate-chapter-response.dto.js';
 import { ModifyContentDto } from './dto/modify-content.dto.js';
 import { DeleteContentDto } from './dto/delete-content.dto.js';
 import { TestPromptDto } from './dto/test-prompt.dto.js';
@@ -12,6 +13,10 @@ import {
   EvaluateChapterDto,
   EvaluateAllChaptersDto,
 } from './dto/evaluate-chapter.dto.js';
+import {
+  VentilateSubChaptersDto,
+  VentilateSubChaptersResponseDto,
+} from './dto/ventilate-subchapters.dto.js';
 
 @Controller('ai')
 @ApiTags('ai')
@@ -35,8 +40,25 @@ export class AiController {
   @ApiOperation({
     summary: 'Generer ou enrichir le contenu d un chapitre avec l IA',
   })
-  generateChapter(@Body() dto: GenerateChapterDto) {
+  @ApiResponse({ status: 201, type: GenerateChapterResponseDto })
+  generateChapter(@Body() dto: GenerateChapterDto): Promise<GenerateChapterResponseDto> {
     return this.aiService.generateChapter(dto);
+  }
+
+  @Post('ventilate-subchapters/:chapterWid')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperation({
+    summary: 'Ventiler le contenu d un chapitre dans ses sous-chapitres template (async — retourne un jobId)',
+  })
+  @ApiParam({ name: 'chapterWid', description: 'WID du chapitre template a ventiler' })
+  @ApiResponse({ status: 202, type: VentilateSubChaptersResponseDto, description: 'Job cree — polling via GET /api/ai/jobs/:jobId' })
+  @ApiResponse({ status: 404, description: 'Specification ou chapitre non trouve' })
+  @ApiResponse({ status: 409, description: 'Chapitre vide ou job deja en cours' })
+  ventilateSubChapters(
+    @Param('chapterWid') chapterWid: string,
+    @Body() dto: VentilateSubChaptersDto,
+  ): Promise<VentilateSubChaptersResponseDto> {
+    return this.aiService.ventilateSubChapters(chapterWid, dto);
   }
 
   @Post('modify')
