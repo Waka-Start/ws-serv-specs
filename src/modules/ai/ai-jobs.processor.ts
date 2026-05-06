@@ -10,6 +10,7 @@ import {
   EnumAiJobStatus,
   WakaSpecChapterContent,
   WakaSpecSubChapterContent,
+  WakaSpecTemplateChapter,
 } from '@prisma/client';
 import { PROMPT_VERSION } from './prompts/suggest-questions.prompt.js';
 
@@ -40,6 +41,31 @@ function classifyAnthropicError(error: unknown): string {
   }
   return 'INTERNAL';
 }
+
+// Shape intermédiaire retourné par ventilateSubChaptersForChapter
+interface VentilatedSubChaptersResult {
+  subChapters: Array<{
+    wid: string;
+    subChapterL1Wid: string;
+    subChapterL2Wid: string;
+    title: string;
+    content: string | null;
+    progress: number;
+    order: number;
+  }>;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+// Type étendu pour le templateChapter avec ses sous-chapitres
+type TemplateChapterWithSubChapters = WakaSpecTemplateChapter & {
+  subChaptersL1: Array<{
+    wid: string;
+    title: string;
+    order: number;
+    subChaptersL2: Array<{ wid: string; title: string; order: number }>;
+  }>;
+};
 
 @Processor('ai-jobs', { concurrency: 2 })
 export class AiJobsProcessor extends WorkerHost {
@@ -111,13 +137,21 @@ export class AiJobsProcessor extends WorkerHost {
         userId: string;
       };
 
-      // Charger la specification avec ses chapitres
+      // Charger la specification avec ses chapitres ET leurs sous-chapitres
       const specification = await this.prisma.wakaSpecification.findUnique({
         where: { wid: input.specificationWid },
         include: {
           template: {
             include: {
-              chapters: { orderBy: { order: 'asc' } },
+              chapters: {
+                include: {
+                  subChaptersL1: {
+                    include: { subChaptersL2: true },
+                    orderBy: { order: 'asc' },
+                  },
+                },
+                orderBy: { order: 'asc' },
+              },
             },
           },
           chapters: { orderBy: { chapterOrder: 'asc' } },
@@ -129,9 +163,25 @@ export class AiJobsProcessor extends WorkerHost {
       }
 
       const megaPrompt = specification.template.megaPrompt;
-      const templateChapters = specification.template.chapters;
+      const templateChapters = specification.template.chapters as unknown as TemplateChapterWithSubChapters[];
       const totalSteps = templateChapters.length;
-      const chapterResults: Array<{ chapterWid: string; content: string }> = [];
+
+      // Accumulateurs pour le result live
+      const chapterResults: Array<{
+        chapterWid: string;
+        content: string;
+        progress: number;
+        isFilled: boolean;
+      }> = [];
+      const allSubChapterResults: Array<{
+        wid: string;
+        subChapterL1Wid: string;
+        subChapterL2Wid: string;
+        title: string;
+        content: string | null;
+        progress: number;
+        order: number;
+      }> = [];
 
       // Traitement séquentiel chapitre par chapitre pour mise à jour du progress
       for (let stepIndex = 0; stepIndex < templateChapters.length; stepIndex++) {
@@ -154,6 +204,7 @@ export class AiJobsProcessor extends WorkerHost {
               currentStep: stepIndex + 1,
               totalSteps,
               currentChapterTitle: templateChapter.title,
+              phase: 'chapter',
             },
           },
         });
@@ -172,6 +223,7 @@ export class AiJobsProcessor extends WorkerHost {
         totalOutputTokens += outputTokens;
 
         // Persister immédiatement le contenu du chapitre (résilience crash)
+        let persistedChapterContentId: number;
         const chapterContent = specification.chapters.find(
           (ch: WakaSpecChapterContent) => ch.chapterWid === templateChapter.wid,
         );
@@ -179,8 +231,9 @@ export class AiJobsProcessor extends WorkerHost {
         if (chapterContent) {
           await this.prisma.wakaSpecChapterContent.update({
             where: { id: chapterContent.id },
-            data: { content: text },
+            data: { content: text, isFilled: text.trim().length >= 30 },
           });
+          persistedChapterContentId = chapterContent.id;
         } else {
           // Cas defensif : la ligne WakaSpecChapterContent n'a pas ete pre-creee
           // a la creation de la spec (bug en amont). On la cree maintenant pour
@@ -190,15 +243,17 @@ export class AiJobsProcessor extends WorkerHost {
           this.logger.warn(
             `Job ${jobWid}: chapterContent missing for chapterWid=${templateChapter.wid} — creating fallback row`,
           );
-          await this.prisma.wakaSpecChapterContent.create({
+          const created = await this.prisma.wakaSpecChapterContent.create({
             data: {
               specificationId: specification.id,
               chapterWid: templateChapter.wid,
               chapterTitle: templateChapter.title,
               chapterOrder: templateChapter.order,
               content: text,
+              isFilled: text.trim().length >= 30,
             },
           });
+          persistedChapterContentId = created.id;
         }
 
         // Créer l'entrée dans l'historique AI
@@ -217,11 +272,72 @@ export class AiJobsProcessor extends WorkerHost {
           },
         });
 
-        chapterResults.push({ chapterWid: templateChapter.wid, content: text });
+        // Ajouter aux résultats de chapitres
+        const isFilled = text.trim().length >= 30;
+        chapterResults.push({
+          chapterWid: templateChapter.wid,
+          content: text,
+          progress: Math.min(80, Math.round(text.length / 50)),
+          isFilled,
+        });
+
+        // Ventiler les sous-chapitres si le template en a
+        if (templateChapter.subChaptersL1.length > 0) {
+          // Update progress pour indiquer la phase sous-chapitres
+          await this.prisma.wakaSpecAiJob.update({
+            where: { wid: jobWid },
+            data: {
+              progress: {
+                currentStep: stepIndex + 1,
+                totalSteps,
+                currentChapterTitle: templateChapter.title,
+                phase: 'subchapters',
+              },
+            },
+          });
+
+          const subResult = await this.ventilateSubChaptersForChapter({
+            specificationId: specification.id,
+            chapterContentId: persistedChapterContentId,
+            chapterWid: templateChapter.wid,
+            chapterTitle: templateChapter.title,
+            parentContent: text,
+            templateChapter,
+            megaPrompt,
+            userId: input.userId,
+            jobWid,
+          });
+
+          totalInputTokens += subResult.inputTokens;
+          totalOutputTokens += subResult.outputTokens;
+          allSubChapterResults.push(...subResult.subChapters);
+        }
+
+        // Mise à jour du result live (chapitres + sous-chapitres au fil de l'eau)
+        const filledCount = chapterResults.filter((c) => c.isFilled).length;
+        await this.prisma.wakaSpecAiJob.update({
+          where: { wid: jobWid },
+          data: {
+            result: {
+              chapters: chapterResults,
+              subChapters: allSubChapterResults,
+              progress: {
+                filled: filledCount,
+                total: totalSteps,
+                percent: Math.round((filledCount / totalSteps) * 100),
+              },
+            },
+          },
+        });
       }
+
+      // Recalcul progression globale de la spec
+      await this.recalculateProgress(specification.id);
 
       // Calcul du coût estimé
       const estimatedCostCts = computeCostCts(totalInputTokens, totalOutputTokens);
+
+      const filledCountFinal = chapterResults.filter((c) => c.isFilled).length;
 
       // Marquer SUCCEEDED
       await this.prisma.wakaSpecAiJob.update({
@@ -232,17 +348,26 @@ export class AiJobsProcessor extends WorkerHost {
           inputTokens: totalInputTokens,
           outputTokens: totalOutputTokens,
           estimatedCostCts,
-          result: { chapters: chapterResults },
+          result: {
+            chapters: chapterResults,
+            subChapters: allSubChapterResults,
+            progress: {
+              filled: filledCountFinal,
+              total: totalSteps,
+              percent: Math.round((filledCountFinal / totalSteps) * 100),
+            },
+          },
           progress: {
             currentStep: totalSteps,
             totalSteps,
             currentChapterTitle: null,
+            phase: 'done',
           },
         },
       });
 
       this.logger.log(
-        `Job ${jobWid}: SUCCEEDED — ${totalSteps} chapters, ${totalInputTokens} input tokens, ${totalOutputTokens} output tokens, ~${estimatedCostCts}cts`,
+        `Job ${jobWid}: SUCCEEDED — ${totalSteps} chapters, ${allSubChapterResults.length} sub-chapters, ${totalInputTokens} input tokens, ${totalOutputTokens} output tokens, ~${estimatedCostCts}cts`,
       );
     } catch (error) {
       if (error instanceof JobCancelledError) {
@@ -347,7 +472,7 @@ export class AiJobsProcessor extends WorkerHost {
         throw new Error(`ChapterContent ${input.chapterContentId} not found`);
       }
 
-      const templateChapter = specification.template.chapters.find(
+      const templateChapter = (specification.template.chapters as unknown as TemplateChapterWithSubChapters[]).find(
         (ch) => ch.wid === input.chapterWid,
       );
 
@@ -360,50 +485,6 @@ export class AiJobsProcessor extends WorkerHost {
       const megaPrompt = specification.template.megaPrompt;
       const parentContent = chapterContent.content ?? '';
 
-      // Construire la liste à plat des sous-chapitres à extraire
-      // Format : [ { l1Wid, l2Wid|null, title, order } ]
-      // subChapterL2Wid utilise '' (non-null) quand il n'y a pas de niveau L2
-      // afin de garantir l'unicité composite en PostgreSQL
-      const subChapterSlots: Array<{
-        l1Wid: string;
-        l2Wid: string;
-        title: string;
-        order: number;
-      }> = [];
-
-      let orderIndex = 0;
-      for (const l1 of templateChapter.subChaptersL1) {
-        if (l1.subChaptersL2.length === 0) {
-          subChapterSlots.push({
-            l1Wid: l1.wid,
-            l2Wid: '',
-            title: l1.title,
-            order: orderIndex++,
-          });
-        } else {
-          for (const l2 of l1.subChaptersL2) {
-            subChapterSlots.push({
-              l1Wid: l1.wid,
-              l2Wid: l2.wid,
-              title: `${l1.title} — ${l2.title}`,
-              order: orderIndex++,
-            });
-          }
-        }
-      }
-
-      const totalSteps = subChapterSlots.length;
-      const persistedSubChapters: WakaSpecSubChapterContent[] = [];
-
-      // Construire le prompt de ventilation
-      const subChapterList = subChapterSlots
-        .map((s, i) => `${i + 1}. ${s.title}`)
-        .join('\n');
-
-      const systemPrompt = `${megaPrompt}\n\nTu es un expert en rédaction de spécifications fonctionnelles. Tu dois ventiler le contenu d'un chapitre parent en sections distinctes correspondant aux sous-chapitres attendus du template.`;
-
-      const userMessage = `Voici le contenu du chapitre "${chapterContent.chapterTitle}" à ventiler :\n\n<contenu_parent>\n${parentContent}\n</contenu_parent>\n\nSous-chapitres attendus (un bloc JSON par sous-chapitre) :\n${subChapterList}\n\nRetourne UNIQUEMENT un tableau JSON valide (sans texte autour) de la forme :\n[\n  { "index": 1, "content": "..." },\n  { "index": 2, "content": "..." }\n]\n\nChaque "content" doit contenir le texte extrait et reformulé du chapitre parent correspondant au sous-chapitre. Si le contenu parent ne couvre pas un sous-chapitre, laisse "content" vide ("").`;
-
       // Check annulation avant l'appel Claude
       const freshJob = await this.prisma.wakaSpecAiJob.findUnique({
         where: { wid: jobWid },
@@ -413,6 +494,11 @@ export class AiJobsProcessor extends WorkerHost {
         throw new JobCancelledError(jobWid);
       }
 
+      const totalSteps = templateChapter.subChaptersL1.reduce(
+        (acc, l1) => acc + Math.max(1, l1.subChaptersL2.length),
+        0,
+      );
+
       await this.prisma.wakaSpecAiJob.update({
         where: { wid: jobWid },
         data: {
@@ -420,111 +506,32 @@ export class AiJobsProcessor extends WorkerHost {
         },
       });
 
-      // Appel Claude unique pour ventiler tout le contenu d'un coup
-      const { text, inputTokens, outputTokens } = await this.callClaudeWithTokens(
-        systemPrompt,
-        userMessage,
-      );
-      totalInputTokens += inputTokens;
-      totalOutputTokens += outputTokens;
+      const subResult = await this.ventilateSubChaptersForChapter({
+        specificationId: specification.id,
+        chapterContentId: input.chapterContentId,
+        chapterWid: input.chapterWid,
+        chapterTitle: chapterContent.chapterTitle,
+        parentContent,
+        templateChapter,
+        megaPrompt,
+        userId: input.userId,
+        jobWid,
+      });
 
-      // Parser la réponse JSON
-      let ventilatedContent: Array<{ index: number; content: string }> = [];
-      try {
-        const jsonMatch = text.match(/\[[\s\S]*\]/);
-        if (jsonMatch) {
-          ventilatedContent = JSON.parse(jsonMatch[0]);
-        }
-      } catch (parseError) {
-        this.logger.error(
-          `Job ${jobWid}: failed to parse ventilation JSON — raw: ${text.slice(0, 500)}`,
-        );
-        throw new Error(`Failed to parse sub-chapter ventilation response: ${parseError}`);
-      }
+      totalInputTokens += subResult.inputTokens;
+      totalOutputTokens += subResult.outputTokens;
 
-      // Persister les sous-chapitres au fil de l'eau (UPSERT)
-      for (let i = 0; i < subChapterSlots.length; i++) {
-        const slot = subChapterSlots[i];
-        const ventilated = ventilatedContent.find((v) => v.index === i + 1);
-        const subContent = ventilated?.content?.trim() ?? '';
-
-        // Score simple basé sur la longueur (évite un appel Claude par sous-chapitre)
-        const IS_FILLED_THRESHOLD = 30;
-        const progress = subContent.length === 0
-          ? 0
-          : subContent.length < 50
-            ? 5
-            : Math.min(80, Math.round(subContent.length / 50));
-
-        const upserted = await this.prisma.wakaSpecSubChapterContent.upsert({
-          where: {
-            chapterContentId_subChapterL1Wid_subChapterL2Wid: {
-              chapterContentId: input.chapterContentId,
-              subChapterL1Wid: slot.l1Wid,
-              subChapterL2Wid: slot.l2Wid,
-            },
+      // Mise à jour progress final du job au fil de la persistance
+      await this.prisma.wakaSpecAiJob.update({
+        where: { wid: jobWid },
+        data: {
+          progress: {
+            currentStep: totalSteps,
+            totalSteps,
+            phase: 'persist',
           },
-          create: {
-            specificationId: specification.id,
-            chapterContentId: input.chapterContentId,
-            subChapterL1Wid: slot.l1Wid,
-            subChapterL2Wid: slot.l2Wid,
-            title: slot.title,
-            content: subContent || null,
-            progress,
-            order: slot.order,
-          },
-          update: {
-            title: slot.title,
-            content: subContent || null,
-            progress,
-          },
-        });
-
-        persistedSubChapters.push(upserted);
-
-        // Mise à jour progress du job
-        await this.prisma.wakaSpecAiJob.update({
-          where: { wid: jobWid },
-          data: {
-            progress: {
-              currentStep: i + 1,
-              totalSteps,
-              phase: 'persist',
-              currentSubChapterTitle: slot.title,
-            },
-            result: {
-              subChapters: persistedSubChapters.map((sc) => ({
-                wid: sc.wid,
-                subChapterL1Wid: sc.subChapterL1Wid,
-                subChapterL2Wid: sc.subChapterL2Wid,
-                title: sc.title,
-                content: sc.content,
-                progress: sc.progress,
-                order: sc.order,
-              })),
-            },
-          },
-        });
-
-        // Log d'historique IA (un seul pour le chapitre, pas un par sous-chapitre)
-        if (i === 0) {
-          await this.prisma.wakaSpecAIHistory.create({
-            data: {
-              specificationId: specification.id,
-              chapterWid: input.chapterWid,
-              action: AIAction.VENTILATE,
-              userInstruction: `Ventilation en ${totalSteps} sous-chapitres`,
-              aiResponse: text,
-              userId: input.userId,
-              modelUsed: this.aiService.model,
-              megaPromptSnapshot: megaPrompt,
-              chapterPromptSnapshot: templateChapter.prompt,
-              promptVersion: PROMPT_VERSION,
-            },
-          });
-        }
-      }
+        },
+      });
 
       // Recalcul progression globale
       await this.recalculateProgress(specification.id);
@@ -541,21 +548,13 @@ export class AiJobsProcessor extends WorkerHost {
           estimatedCostCts,
           progress: { currentStep: totalSteps, totalSteps, phase: 'done' },
           result: {
-            subChapters: persistedSubChapters.map((sc) => ({
-              wid: sc.wid,
-              subChapterL1Wid: sc.subChapterL1Wid,
-              subChapterL2Wid: sc.subChapterL2Wid,
-              title: sc.title,
-              content: sc.content,
-              progress: sc.progress,
-              order: sc.order,
-            })),
+            subChapters: subResult.subChapters,
           },
         },
       });
 
       this.logger.log(
-        `Job ${jobWid}: VENTILATE_SUBCHAPTERS SUCCEEDED — ${totalSteps} sub-chapters, ${totalInputTokens} in, ${totalOutputTokens} out, ~${estimatedCostCts}cts`,
+        `Job ${jobWid}: VENTILATE_SUBCHAPTERS SUCCEEDED — ${subResult.subChapters.length} sub-chapters, ${totalInputTokens} in, ${totalOutputTokens} out, ~${estimatedCostCts}cts`,
       );
     } catch (error) {
       if (error instanceof JobCancelledError) {
@@ -592,6 +591,174 @@ export class AiJobsProcessor extends WorkerHost {
       );
       throw error;
     }
+  }
+
+  /**
+   * Ventile le contenu d'un chapitre parent dans ses sous-chapitres L1/L2.
+   * Méthode extraite pour être réutilisée dans processVentilate (cascade)
+   * et processVentilateSubChapters (job dédié).
+   * Ne gère PAS le cycle de vie du job (status, SUCCEEDED/FAILED).
+   */
+  private async ventilateSubChaptersForChapter(params: {
+    specificationId: number;
+    chapterContentId: number;
+    chapterWid: string;
+    chapterTitle: string;
+    parentContent: string;
+    templateChapter: TemplateChapterWithSubChapters;
+    megaPrompt: string;
+    userId: string;
+    jobWid: string;
+  }): Promise<VentilatedSubChaptersResult> {
+    const {
+      specificationId,
+      chapterContentId,
+      chapterTitle,
+      parentContent,
+      templateChapter,
+      megaPrompt,
+      userId,
+      jobWid,
+    } = params;
+
+    // Construire la liste à plat des sous-chapitres à extraire
+    // Format : [ { l1Wid, l2Wid|'', title, order } ]
+    // subChapterL2Wid utilise '' (non-null) quand il n'y a pas de niveau L2
+    // afin de garantir l'unicité composite en PostgreSQL
+    const subChapterSlots: Array<{
+      l1Wid: string;
+      l2Wid: string;
+      title: string;
+      order: number;
+    }> = [];
+
+    let orderIndex = 0;
+    for (const l1 of templateChapter.subChaptersL1) {
+      if (l1.subChaptersL2.length === 0) {
+        subChapterSlots.push({
+          l1Wid: l1.wid,
+          l2Wid: '',
+          title: l1.title,
+          order: orderIndex++,
+        });
+      } else {
+        for (const l2 of l1.subChaptersL2) {
+          subChapterSlots.push({
+            l1Wid: l1.wid,
+            l2Wid: l2.wid,
+            title: `${l1.title} — ${l2.title}`,
+            order: orderIndex++,
+          });
+        }
+      }
+    }
+
+    const totalSteps = subChapterSlots.length;
+
+    // Construire le prompt de ventilation
+    const subChapterList = subChapterSlots
+      .map((s, i) => `${i + 1}. ${s.title}`)
+      .join('\n');
+
+    const systemPrompt = `${megaPrompt}\n\nTu es un expert en rédaction de spécifications fonctionnelles. Tu dois ventiler le contenu d'un chapitre parent en sections distinctes correspondant aux sous-chapitres attendus du template.`;
+
+    const userMessage = `Voici le contenu du chapitre "${chapterTitle}" à ventiler :\n\n<contenu_parent>\n${parentContent}\n</contenu_parent>\n\nSous-chapitres attendus (un bloc JSON par sous-chapitre) :\n${subChapterList}\n\nRetourne UNIQUEMENT un tableau JSON valide (sans texte autour) de la forme :\n[\n  { "index": 1, "content": "..." },\n  { "index": 2, "content": "..." }\n]\n\nChaque "content" doit contenir le texte extrait et reformulé du chapitre parent correspondant au sous-chapitre. Si le contenu parent ne couvre pas un sous-chapitre, laisse "content" vide ("").`;
+
+    // Appel Claude unique pour ventiler tout le contenu d'un coup
+    const { text, inputTokens, outputTokens } = await this.callClaudeWithTokens(
+      systemPrompt,
+      userMessage,
+    );
+
+    // Parser la réponse JSON
+    let ventilatedContent: Array<{ index: number; content: string }> = [];
+    try {
+      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        ventilatedContent = JSON.parse(jsonMatch[0]);
+      }
+    } catch (parseError) {
+      this.logger.error(
+        `Job ${jobWid}: failed to parse sub-chapter ventilation JSON — raw: ${text.slice(0, 500)}`,
+      );
+      throw new Error(`Failed to parse sub-chapter ventilation response: ${parseError}`);
+    }
+
+    // Persister les sous-chapitres au fil de l'eau (UPSERT)
+    const persistedSubChapters: WakaSpecSubChapterContent[] = [];
+
+    for (let i = 0; i < subChapterSlots.length; i++) {
+      const slot = subChapterSlots[i];
+      const ventilated = ventilatedContent.find((v) => v.index === i + 1);
+      const subContent = ventilated?.content?.trim() ?? '';
+
+      const progress = subContent.length === 0
+        ? 0
+        : subContent.length < 50
+          ? 5
+          : Math.min(80, Math.round(subContent.length / 50));
+
+      const upserted = await this.prisma.wakaSpecSubChapterContent.upsert({
+        where: {
+          chapterContentId_subChapterL1Wid_subChapterL2Wid: {
+            chapterContentId,
+            subChapterL1Wid: slot.l1Wid,
+            subChapterL2Wid: slot.l2Wid,
+          },
+        },
+        create: {
+          specificationId,
+          chapterContentId,
+          subChapterL1Wid: slot.l1Wid,
+          subChapterL2Wid: slot.l2Wid,
+          title: slot.title,
+          content: subContent || null,
+          progress,
+          order: slot.order,
+        },
+        update: {
+          title: slot.title,
+          content: subContent || null,
+          progress,
+        },
+      });
+
+      persistedSubChapters.push(upserted);
+    }
+
+    // Log d'historique IA (un seul log par chapitre parent)
+    await this.prisma.wakaSpecAIHistory.create({
+      data: {
+        specificationId,
+        chapterWid: params.chapterWid,
+        action: AIAction.VENTILATE,
+        userInstruction: `Ventilation en ${totalSteps} sous-chapitres`,
+        aiResponse: text,
+        userId,
+        modelUsed: this.aiService.model,
+        megaPromptSnapshot: megaPrompt,
+        chapterPromptSnapshot: templateChapter.prompt,
+        promptVersion: PROMPT_VERSION,
+      },
+    });
+
+    this.logger.debug(
+      `Job ${jobWid}: ventilated ${persistedSubChapters.length} sub-chapters for chapter "${chapterTitle}"`,
+    );
+
+    return {
+      subChapters: persistedSubChapters.map((sc) => ({
+        wid: sc.wid,
+        subChapterL1Wid: sc.subChapterL1Wid,
+        subChapterL2Wid: sc.subChapterL2Wid,
+        title: sc.title,
+        content: sc.content,
+        progress: sc.progress,
+        order: sc.order,
+      })),
+      inputTokens,
+      outputTokens,
+    };
   }
 
   private async recalculateProgress(specificationId: number): Promise<void> {
