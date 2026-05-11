@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { ApiKeyGuard } from '../../common/guards/api-key.guard.js';
 import { AiService } from './ai.service.js';
@@ -32,8 +32,11 @@ export class AiController {
   })
   @ApiResponse({ status: 202, description: 'Job créé — polling via GET /api/ai/jobs/:jobWid' })
   @ApiResponse({ status: 409, description: 'Un job VENTILATE est déjà en cours pour cette specification' })
-  ventilate(@Body() dto: VentilateDto) {
-    return this.aiService.ventilate(dto);
+  ventilate(
+    @Body() dto: VentilateDto,
+    @Headers('x-user-customer-wid') customerWid?: string,
+  ) {
+    return this.aiService.ventilate(dto, customerWid);
   }
 
   @Post('generate')
@@ -41,8 +44,11 @@ export class AiController {
     summary: 'Generer ou enrichir le contenu d un chapitre avec l IA',
   })
   @ApiResponse({ status: 201, type: GenerateChapterResponseDto })
-  generateChapter(@Body() dto: GenerateChapterDto): Promise<GenerateChapterResponseDto> {
-    return this.aiService.generateChapter(dto);
+  generateChapter(
+    @Body() dto: GenerateChapterDto,
+    @Headers('x-user-customer-wid') customerWid?: string,
+  ): Promise<GenerateChapterResponseDto> {
+    return this.aiService.generateChapter(dto, customerWid);
   }
 
   @Post('ventilate-subchapters/:chapterWid')
@@ -57,16 +63,20 @@ export class AiController {
   ventilateSubChapters(
     @Param('chapterWid') chapterWid: string,
     @Body() dto: VentilateSubChaptersDto,
+    @Headers('x-user-customer-wid') customerWid?: string,
   ): Promise<VentilateSubChaptersResponseDto> {
-    return this.aiService.ventilateSubChapters(chapterWid, dto);
+    return this.aiService.ventilateSubChapters(chapterWid, dto, customerWid);
   }
 
   @Post('modify')
   @ApiOperation({
     summary: 'Modifier un texte selectionne dans un chapitre',
   })
-  modifyContent(@Body() dto: ModifyContentDto) {
-    return this.aiService.modifyContent(dto);
+  modifyContent(
+    @Body() dto: ModifyContentDto,
+    @Headers('x-user-customer-wid') customerWid?: string,
+  ) {
+    return this.aiService.modifyContent(dto, customerWid);
   }
 
   @Post('delete-content')
@@ -82,8 +92,11 @@ export class AiController {
     summary:
       'Generer des questions contextuelles pour aider la redaction d un chapitre',
   })
-  suggestQuestions(@Body() dto: SuggestQuestionsDto) {
-    return this.aiService.suggestQuestions(dto);
+  suggestQuestions(
+    @Body() dto: SuggestQuestionsDto,
+    @Headers('x-user-customer-wid') customerWid?: string,
+  ) {
+    return this.aiService.suggestQuestions(dto, customerWid);
   }
 
   @Post('test-prompt')
@@ -99,8 +112,11 @@ export class AiController {
   @ApiOperation({
     summary: 'Evaluer la completude d un chapitre par rapport aux exigences du template',
   })
-  evaluateChapter(@Body() dto: EvaluateChapterDto) {
-    return this.aiService.evaluateChapter(dto);
+  evaluateChapter(
+    @Body() dto: EvaluateChapterDto,
+    @Headers('x-user-customer-wid') customerWid?: string,
+  ) {
+    return this.aiService.evaluateChapter(dto, customerWid);
   }
 
   @Post('evaluate-all')

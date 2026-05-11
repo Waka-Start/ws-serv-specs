@@ -9,6 +9,10 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import Anthropic from '@anthropic-ai/sdk';
+import {
+  CreditsClientService,
+  costCtsToCredits,
+} from '../../common/services/credits-client.service.js';
 import { AIAction, EnumAiJobStatus, EnumAiJobType } from '@prisma/client';
 import { VentilateDto } from './dto/ventilate.dto.js';
 import { GenerateChapterDto } from './dto/generate-chapter.dto.js';
@@ -45,6 +49,7 @@ export class AiService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    private readonly creditsClient: CreditsClientService,
     @InjectQueue('ai-jobs') private readonly aiJobsQueue: Queue,
   ) {
     this.anthropic = new Anthropic({
@@ -65,7 +70,7 @@ export class AiService {
     );
   }
 
-  async ventilate(dto: VentilateDto): Promise<{ jobWid: string; status: string }> {
+  async ventilate(dto: VentilateDto, customerId?: string): Promise<{ jobWid: string; status: string }> {
     // Vérifier que la specification existe
     const specification = await this.prisma.wakaSpecification.findUnique({
       where: { wid: dto.specificationWid },
@@ -103,6 +108,9 @@ export class AiService {
           specificationWid: dto.specificationWid,
           initialText: dto.initialText,
           userId: dto.userId,
+          // customerId transmis par le BFF via x-user-customer-wid (header Keycloak enrichi)
+          // Utilisé en fin de job pour débiter les crédits IA
+          customerId: customerId ?? null,
         },
       },
     });
@@ -129,6 +137,7 @@ export class AiService {
   async ventilateSubChapters(
     chapterWid: string,
     dto: { specificationWid: string; userId: string },
+    customerId?: string,
   ): Promise<{ jobId: string }> {
     // Vérifier que la specification existe et que le chapitre a du contenu
     const specification = await this.prisma.wakaSpecification.findUnique({
@@ -183,6 +192,8 @@ export class AiService {
           chapterWid,
           chapterContentId: chapterContent.id,
           userId: dto.userId,
+          // customerId transmis par le BFF via x-user-customer-wid
+          customerId: customerId ?? null,
         },
       },
     });
@@ -205,7 +216,7 @@ export class AiService {
     return { jobId: job.wid };
   }
 
-  async generateChapter(dto: GenerateChapterDto): Promise<GenerateChapterResponseDto> {
+  async generateChapter(dto: GenerateChapterDto, customerId?: string): Promise<GenerateChapterResponseDto> {
     // Sanitize userInstruction : trim + cap à 20 000 chars pour éviter un prompt explosé
     const MAX_USER_INSTRUCTION_CHARS = 20_000;
     const sanitizedInstruction = dto.userInstruction?.trim()
@@ -293,10 +304,16 @@ export class AiService {
     }
 
     let aiResponse: string;
+    let generateInputTokens = 0;
+    let generateOutputTokens = 0;
     try {
-      aiResponse = await this.callClaude(megaPrompt, userMessage, {
+      const result = await this.callClaude(megaPrompt, userMessage, {
         enableCache: true,
+        returnTokens: true,
       });
+      aiResponse = result.text;
+      generateInputTokens = result.inputTokens;
+      generateOutputTokens = result.outputTokens;
     } catch (error) {
       const anthropicStatus =
         error instanceof Anthropic.APIError ? error.status : undefined;
@@ -334,6 +351,20 @@ export class AiService {
         promptVersion: PROMPT_VERSION,
       },
     });
+
+    // Débit crédits après succès Anthropic (post-call V1).
+    // - 402 insufficient credits → remonté à l'user (le contenu est sauvé mais facture impayée)
+    // - Réseau/5xx → fire-and-forget (warn log), ne bloque pas la réponse
+    // Grille Sonnet 4 : $3/M input, $15/M output
+    if (customerId) {
+      const costCts = Math.round((generateInputTokens * 3 + generateOutputTokens * 15) / 10_000);
+      const credits = costCtsToCredits(costCts, this.creditsClient.costPerCreditCts);
+      await this.creditsClient.consumeCredits({
+        customerId,
+        operation: 'AI_SPECS_GENERATE',
+        credits,
+      });
+    }
 
     return this.buildGenerateChapterResponse(specification.id, dto.chapterWid);
   }
@@ -395,7 +426,7 @@ export class AiService {
     };
   }
 
-  async modifyContent(dto: ModifyContentDto) {
+  async modifyContent(dto: ModifyContentDto, customerId?: string) {
     const specification = await this.prisma.wakaSpecification.findUnique({
       where: { wid: dto.specificationWid },
       include: {
@@ -425,7 +456,10 @@ export class AiService {
       userInstruction: dto.userInstruction,
     });
 
-    const aiResponse = await this.callClaude(MODIFY_CONTENT_SYSTEM, userMessage);
+    const modifyResult = await this.callClaude(MODIFY_CONTENT_SYSTEM, userMessage, {
+      returnTokens: true,
+    });
+    const aiResponse = modifyResult.text;
 
     await this.prisma.wakaSpecChapterContent.update({
       where: { id: chapterContent.id },
@@ -446,6 +480,19 @@ export class AiService {
         promptVersion: PROMPT_VERSION,
       },
     });
+
+    // Débit crédits post-call (même convention que generateChapter)
+    if (customerId) {
+      const costCts = Math.round(
+        (modifyResult.inputTokens * 3 + modifyResult.outputTokens * 15) / 10_000,
+      );
+      const credits = costCtsToCredits(costCts, this.creditsClient.costPerCreditCts);
+      await this.creditsClient.consumeCredits({
+        customerId,
+        operation: 'AI_SPECS_GENERATE',
+        credits,
+      });
+    }
 
     return this.evaluateChapterInternal(specification.id, dto.chapterWid);
   }
@@ -517,6 +564,7 @@ export class AiService {
 
   async suggestQuestions(
     dto: SuggestQuestionsDto,
+    customerId?: string,
   ): Promise<{ questions: SuggestedQuestion[] }> {
     this.logger.debug(
       `Generating contextual questions for chapter: ${dto.chapterTitle} (model=${this.modelLight})`,
@@ -587,6 +635,22 @@ export class AiService {
       }
 
       const input = toolUseBlock.input as { questions: SuggestedQuestion[] };
+
+      // Débit crédits post-call (modelLight, tarif Haiku ~$0.8/M in, $4/M out)
+      // On utilise la même grille tarifaire Sonnet en V1 par simplicité —
+      // à affiner par modèle en Phase B si nécessaire.
+      if (customerId) {
+        const costCts = Math.round(
+          (response.usage.input_tokens * 3 + response.usage.output_tokens * 15) / 10_000,
+        );
+        const credits = costCtsToCredits(costCts, this.creditsClient.costPerCreditCts);
+        await this.creditsClient.consumeCredits({
+          customerId,
+          operation: 'AI_SPECS_GENERATE',
+          credits,
+        });
+      }
+
       return { questions: input.questions ?? [] };
     } catch (error) {
       this.logger.error(`suggestQuestions Claude API error: ${error}`);
@@ -625,7 +689,7 @@ export class AiService {
 
   // ──── Evaluation de completude ────
 
-  async evaluateChapter(dto: EvaluateChapterDto) {
+  async evaluateChapter(dto: EvaluateChapterDto, customerId?: string) {
     const specification = await this.prisma.wakaSpecification.findUnique({
       where: { wid: dto.specificationWid },
     });
@@ -636,7 +700,20 @@ export class AiService {
       );
     }
 
-    return this.evaluateChapterInternal(specification.id, dto.chapterWid);
+    const result = await this.evaluateChapterInternal(specification.id, dto.chapterWid);
+
+    // Débit crédits pour l'évaluation explicite (pas pour les évaluations auto post-generate)
+    if (customerId) {
+      // L'évaluation utilise modelLight avec max_tokens=512 — coût très faible
+      // On facture 1 crédit minimum pour couvrir le coût même si estimatedCostCts=0
+      await this.creditsClient.consumeCredits({
+        customerId,
+        operation: 'AI_SPECS_EVALUATE',
+        credits: 1,
+      });
+    }
+
+    return result;
   }
 
   async evaluateAllChapters(dto: EvaluateAllChaptersDto) {
@@ -891,7 +968,17 @@ Criteres de scoring :
     system: string,
     userMessage: string,
     options?: { enableCache?: boolean; model?: string },
-  ): Promise<string> {
+  ): Promise<string>;
+  private async callClaude(
+    system: string,
+    userMessage: string,
+    options: { enableCache?: boolean; model?: string; returnTokens: true },
+  ): Promise<{ text: string; inputTokens: number; outputTokens: number }>;
+  private async callClaude(
+    system: string,
+    userMessage: string,
+    options?: { enableCache?: boolean; model?: string; returnTokens?: boolean },
+  ): Promise<string | { text: string; inputTokens: number; outputTokens: number }> {
     const model = options?.model ?? this.model;
     this.logger.debug(
       `Calling Claude model ${model} (cache=${options?.enableCache ?? false}, promptVersion=${PROMPT_VERSION})`,
@@ -927,7 +1014,15 @@ Criteres de scoring :
       const textBlock = response.content.find(
         (b: Anthropic.ContentBlock): b is Anthropic.TextBlock => b.type === 'text',
       );
-      return textBlock?.text ?? '';
+      const text = textBlock?.text ?? '';
+      if (options?.returnTokens) {
+        return {
+          text,
+          inputTokens: response.usage?.input_tokens ?? 0,
+          outputTokens: response.usage?.output_tokens ?? 0,
+        };
+      }
+      return text;
     } catch (error) {
       const status = error instanceof Anthropic.APIError ? error.status : undefined;
       const msg = error instanceof Anthropic.APIError ? error.message : String(error);

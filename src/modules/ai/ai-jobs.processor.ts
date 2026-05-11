@@ -6,6 +6,10 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 import { AiService } from './ai.service.js';
 import { AiJobsService } from './ai-jobs.service.js';
 import {
+  CreditsClientService,
+  costCtsToCredits,
+} from '../../common/services/credits-client.service.js';
+import {
   AIAction,
   EnumAiJobStatus,
   WakaSpecChapterContent,
@@ -78,6 +82,7 @@ export class AiJobsProcessor extends WorkerHost {
     private readonly prisma: PrismaService,
     private readonly aiService: AiService,
     private readonly aiJobsService: AiJobsService,
+    private readonly creditsClient: CreditsClientService,
   ) {
     super();
   }
@@ -106,7 +111,6 @@ export class AiJobsProcessor extends WorkerHost {
   }
 
   private async processVentilate(jobWid: string): Promise<void> {
-    // Charger le job depuis la DB
     const dbJob = await this.prisma.wakaSpecAiJob.findUnique({
       where: { wid: jobWid },
     });
@@ -138,6 +142,7 @@ export class AiJobsProcessor extends WorkerHost {
         specificationWid: string;
         initialText: string;
         userId: string;
+        customerId?: string | null;
       };
 
       // Charger la specification avec ses chapitres ET leurs sous-chapitres
@@ -373,6 +378,26 @@ export class AiJobsProcessor extends WorkerHost {
       this.logger.log(
         `Job ${jobWid}: SUCCEEDED — ${totalSteps} chapters, ${allSubChapterResults.length} sub-chapters, ${totalInputTokens} input tokens, ${totalOutputTokens} output tokens, ~${estimatedCostCts}cts`,
       );
+
+      // Débit crédits post-job VENTILATE (best-effort, fire-and-forget sur erreurs réseau)
+      if (input.customerId) {
+        const credits = costCtsToCredits(estimatedCostCts, this.creditsClient.costPerCreditCts);
+        this.creditsClient.consumeCredits({
+          customerId: input.customerId,
+          operation: 'AI_SPECS_VENTILATE',
+          credits,
+          idempotencyKey: jobWid,
+        }).catch((err: Error) => {
+          this.logger.warn(
+            `Job ${jobWid}: credits debit failed (fire-and-forget) — ` +
+            `customerId=${input.customerId} credits=${credits} error="${err.message}"`,
+          );
+        });
+      } else {
+        this.logger.warn(
+          `Job ${jobWid}: customerId absent in job input — credits debit skipped`,
+        );
+      }
     } catch (error) {
       if (error instanceof JobCancelledError) {
         await this.prisma.wakaSpecAiJob.update({
@@ -442,6 +467,7 @@ export class AiJobsProcessor extends WorkerHost {
         chapterWid: string;
         chapterContentId: number;
         userId: string;
+        customerId?: string | null;
       };
 
       // Charger la spec avec template sous-chapitres et le contenu du chapitre parent
@@ -560,6 +586,26 @@ export class AiJobsProcessor extends WorkerHost {
       this.logger.log(
         `Job ${jobWid}: VENTILATE_SUBCHAPTERS SUCCEEDED — ${subResult.subChapters.length} sub-chapters, ${totalInputTokens} in, ${totalOutputTokens} out, ~${estimatedCostCts}cts`,
       );
+
+      // Débit crédits post-job VENTILATE_SUBCHAPTERS (best-effort)
+      if (input.customerId) {
+        const credits = costCtsToCredits(estimatedCostCts, this.creditsClient.costPerCreditCts);
+        this.creditsClient.consumeCredits({
+          customerId: input.customerId,
+          operation: 'AI_SPECS_VENTILATE',
+          credits,
+          idempotencyKey: jobWid,
+        }).catch((err: Error) => {
+          this.logger.warn(
+            `Job ${jobWid}: VENTILATE_SUBCHAPTERS credits debit failed (fire-and-forget) — ` +
+            `customerId=${input.customerId} credits=${credits} error="${err.message}"`,
+          );
+        });
+      } else {
+        this.logger.warn(
+          `Job ${jobWid}: customerId absent in VENTILATE_SUBCHAPTERS input — credits debit skipped`,
+        );
+      }
     } catch (error) {
       if (error instanceof JobCancelledError) {
         await this.prisma.wakaSpecAiJob.update({
