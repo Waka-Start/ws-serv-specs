@@ -1,28 +1,28 @@
-import { Logger } from '@nestjs/common';
-import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { Job } from 'bullmq';
-import Anthropic from '@anthropic-ai/sdk';
-import { PrismaService } from '../../prisma/prisma.service.js';
-import { AiService } from './ai.service.js';
-import { AiJobsService } from './ai-jobs.service.js';
+import { Logger } from "@nestjs/common";
+import { Processor, WorkerHost } from "@nestjs/bullmq";
+import { Job } from "bullmq";
+import Anthropic from "@anthropic-ai/sdk";
+import { PrismaService } from "../../prisma/prisma.service.js";
+import { AiService } from "./ai.service.js";
+import { AiJobsService } from "./ai-jobs.service.js";
 import {
   CreditsClientService,
   costCtsToCredits,
-} from '../../common/services/credits-client.service.js';
+} from "../../common/services/credits-client.service.js";
 import {
   AIAction,
   EnumAiJobStatus,
   WakaSpecChapterContent,
   WakaSpecSubChapterContent,
   WakaSpecTemplateChapter,
-} from '@prisma/client';
-import { PROMPT_VERSION } from './prompts/suggest-questions.prompt.js';
+} from "@prisma/client";
+import { PROMPT_VERSION } from "./prompts/suggest-questions.prompt.js";
 
 // Erreur métier pour annulation volontaire
 export class JobCancelledError extends Error {
   constructor(jobWid: string) {
     super(`Job ${jobWid} was cancelled`);
-    this.name = 'JobCancelledError';
+    this.name = "JobCancelledError";
   }
 }
 
@@ -33,17 +33,21 @@ function computeCostCts(inputTokens: number, outputTokens: number): number {
 }
 
 function classifyAnthropicError(error: unknown): string {
-  if (error && typeof error === 'object' && 'status' in error) {
+  if (error && typeof error === "object" && "status" in error) {
     const status = (error as { status: number }).status;
-    if (status === 429) return 'ANTHROPIC_RATE_LIMIT';
-    if (status >= 500) return 'ANTHROPIC_DOWN';
-    if (status >= 400) return 'ANTHROPIC_INVALID_REQUEST';
+    if (status === 429) return "ANTHROPIC_RATE_LIMIT";
+    if (status >= 500) return "ANTHROPIC_DOWN";
+    if (status >= 400) return "ANTHROPIC_INVALID_REQUEST";
   }
   const msg = error instanceof Error ? error.message : String(error);
-  if (msg.includes('timeout') || msg.includes('ETIMEDOUT') || msg.includes('ECONNRESET')) {
-    return 'ANTHROPIC_DOWN';
+  if (
+    msg.includes("timeout") ||
+    msg.includes("ETIMEDOUT") ||
+    msg.includes("ECONNRESET")
+  ) {
+    return "ANTHROPIC_DOWN";
   }
-  return 'INTERNAL';
+  return "INTERNAL";
 }
 
 // Shape intermédiaire retourné par ventilateSubChaptersForChapter.
@@ -74,7 +78,7 @@ type TemplateChapterWithSubChapters = WakaSpecTemplateChapter & {
   }>;
 };
 
-@Processor('ai-jobs', { concurrency: 2 })
+@Processor("ai-jobs", { concurrency: 2 })
 export class AiJobsProcessor extends WorkerHost {
   private readonly logger = new Logger(AiJobsProcessor.name);
 
@@ -88,8 +92,8 @@ export class AiJobsProcessor extends WorkerHost {
   }
 
   async process(job: Job<{ jobWid?: string }>): Promise<void> {
-    if (job.name === 'cleanup-stale-jobs') {
-      this.logger.debug('Running stale jobs cleanup cron');
+    if (job.name === "cleanup-stale-jobs") {
+      this.logger.debug("Running stale jobs cleanup cron");
       await this.aiJobsService.cleanStaleJobs();
       return;
     }
@@ -101,9 +105,9 @@ export class AiJobsProcessor extends WorkerHost {
     }
     this.logger.log(`Processing job ${jobWid} (name=${job.name})`);
 
-    if (job.name === 'ventilate') {
+    if (job.name === "ventilate") {
       await this.processVentilate(jobWid);
-    } else if (job.name === 'ventilate-subchapters') {
+    } else if (job.name === "ventilate-subchapters") {
       await this.processVentilateSubChapters(jobWid);
     } else {
       this.logger.warn(`Unknown job name: ${job.name} — skipping`);
@@ -155,14 +159,14 @@ export class AiJobsProcessor extends WorkerHost {
                 include: {
                   subChaptersL1: {
                     include: { subChaptersL2: true },
-                    orderBy: { order: 'asc' },
+                    orderBy: { order: "asc" },
                   },
                 },
-                orderBy: { order: 'asc' },
+                orderBy: { order: "asc" },
               },
             },
           },
-          chapters: { orderBy: { chapterOrder: 'asc' } },
+          chapters: { orderBy: { chapterOrder: "asc" } },
         },
       });
 
@@ -171,7 +175,8 @@ export class AiJobsProcessor extends WorkerHost {
       }
 
       const megaPrompt = specification.template.megaPrompt;
-      const templateChapters = specification.template.chapters as unknown as TemplateChapterWithSubChapters[];
+      const templateChapters = specification.template
+        .chapters as unknown as TemplateChapterWithSubChapters[];
       const totalSteps = templateChapters.length;
 
       // Accumulateurs pour le result live
@@ -193,7 +198,11 @@ export class AiJobsProcessor extends WorkerHost {
       }> = [];
 
       // Traitement séquentiel chapitre par chapitre pour mise à jour du progress
-      for (let stepIndex = 0; stepIndex < templateChapters.length; stepIndex++) {
+      for (
+        let stepIndex = 0;
+        stepIndex < templateChapters.length;
+        stepIndex++
+      ) {
         const templateChapter = templateChapters[stepIndex];
 
         // Check annulation avant chaque appel Claude
@@ -213,7 +222,7 @@ export class AiJobsProcessor extends WorkerHost {
               currentStep: stepIndex + 1,
               totalSteps,
               currentChapterTitle: templateChapter.title,
-              phase: 'chapter',
+              phase: "chapter",
             },
           },
         });
@@ -300,7 +309,7 @@ export class AiJobsProcessor extends WorkerHost {
                 currentStep: stepIndex + 1,
                 totalSteps,
                 currentChapterTitle: templateChapter.title,
-                phase: 'subchapters',
+                phase: "subchapters",
               },
             },
           });
@@ -344,7 +353,10 @@ export class AiJobsProcessor extends WorkerHost {
       await this.recalculateProgress(specification.id);
 
       // Calcul du coût estimé
-      const estimatedCostCts = computeCostCts(totalInputTokens, totalOutputTokens);
+      const estimatedCostCts = computeCostCts(
+        totalInputTokens,
+        totalOutputTokens,
+      );
 
       const filledCountFinal = chapterResults.filter((c) => c.isFilled).length;
 
@@ -370,7 +382,7 @@ export class AiJobsProcessor extends WorkerHost {
             currentStep: totalSteps,
             totalSteps,
             currentChapterTitle: null,
-            phase: 'done',
+            phase: "done",
           },
         },
       });
@@ -381,18 +393,23 @@ export class AiJobsProcessor extends WorkerHost {
 
       // Débit crédits post-job VENTILATE (best-effort, fire-and-forget sur erreurs réseau)
       if (input.customerId) {
-        const credits = costCtsToCredits(estimatedCostCts, this.creditsClient.costPerCreditCts);
-        this.creditsClient.consumeCredits({
-          customerId: input.customerId,
-          operation: 'AI_SPECS_VENTILATE',
-          credits,
-          idempotencyKey: jobWid,
-        }).catch((err: Error) => {
-          this.logger.warn(
-            `Job ${jobWid}: credits debit failed (fire-and-forget) — ` +
-            `customerId=${input.customerId} credits=${credits} error="${err.message}"`,
-          );
-        });
+        const credits = costCtsToCredits(
+          estimatedCostCts,
+          this.creditsClient.costPerCreditCts,
+        );
+        this.creditsClient
+          .consumeCredits({
+            customerId: input.customerId,
+            operation: "AI_SPECS_VENTILATE",
+            credits,
+            idempotencyKey: jobWid,
+          })
+          .catch((err: Error) => {
+            this.logger.warn(
+              `Job ${jobWid}: credits debit failed (fire-and-forget) — ` +
+                `customerId=${input.customerId} credits=${credits} error="${err.message}"`,
+            );
+          });
       } else {
         this.logger.warn(
           `Job ${jobWid}: customerId absent in job input — credits debit skipped`,
@@ -480,10 +497,10 @@ export class AiJobsProcessor extends WorkerHost {
                 include: {
                   subChaptersL1: {
                     include: { subChaptersL2: true },
-                    orderBy: { order: 'asc' },
+                    orderBy: { order: "asc" },
                   },
                 },
-                orderBy: { order: 'asc' },
+                orderBy: { order: "asc" },
               },
             },
           },
@@ -494,17 +511,19 @@ export class AiJobsProcessor extends WorkerHost {
         throw new Error(`Specification ${input.specificationWid} not found`);
       }
 
-      const chapterContent = await this.prisma.wakaSpecChapterContent.findUnique({
-        where: { id: input.chapterContentId },
-      });
+      const chapterContent =
+        await this.prisma.wakaSpecChapterContent.findUnique({
+          where: { id: input.chapterContentId },
+        });
 
       if (!chapterContent) {
         throw new Error(`ChapterContent ${input.chapterContentId} not found`);
       }
 
-      const templateChapter = (specification.template.chapters as unknown as TemplateChapterWithSubChapters[]).find(
-        (ch) => ch.wid === input.chapterWid,
-      );
+      const templateChapter = (
+        specification.template
+          .chapters as unknown as TemplateChapterWithSubChapters[]
+      ).find((ch) => ch.wid === input.chapterWid);
 
       if (!templateChapter || templateChapter.subChaptersL1.length === 0) {
         throw new Error(
@@ -513,7 +532,7 @@ export class AiJobsProcessor extends WorkerHost {
       }
 
       const megaPrompt = specification.template.megaPrompt;
-      const parentContent = chapterContent.content ?? '';
+      const parentContent = chapterContent.content ?? "";
 
       // Check annulation avant l'appel Claude
       const freshJob = await this.prisma.wakaSpecAiJob.findUnique({
@@ -532,7 +551,7 @@ export class AiJobsProcessor extends WorkerHost {
       await this.prisma.wakaSpecAiJob.update({
         where: { wid: jobWid },
         data: {
-          progress: { currentStep: 0, totalSteps, phase: 'ventilation' },
+          progress: { currentStep: 0, totalSteps, phase: "ventilation" },
         },
       });
 
@@ -558,7 +577,7 @@ export class AiJobsProcessor extends WorkerHost {
           progress: {
             currentStep: totalSteps,
             totalSteps,
-            phase: 'persist',
+            phase: "persist",
           },
         },
       });
@@ -566,7 +585,10 @@ export class AiJobsProcessor extends WorkerHost {
       // Recalcul progression globale
       await this.recalculateProgress(specification.id);
 
-      const estimatedCostCts = computeCostCts(totalInputTokens, totalOutputTokens);
+      const estimatedCostCts = computeCostCts(
+        totalInputTokens,
+        totalOutputTokens,
+      );
 
       await this.prisma.wakaSpecAiJob.update({
         where: { wid: jobWid },
@@ -576,7 +598,7 @@ export class AiJobsProcessor extends WorkerHost {
           inputTokens: totalInputTokens,
           outputTokens: totalOutputTokens,
           estimatedCostCts,
-          progress: { currentStep: totalSteps, totalSteps, phase: 'done' },
+          progress: { currentStep: totalSteps, totalSteps, phase: "done" },
           result: {
             subChapters: subResult.subChapters,
           },
@@ -589,18 +611,23 @@ export class AiJobsProcessor extends WorkerHost {
 
       // Débit crédits post-job VENTILATE_SUBCHAPTERS (best-effort)
       if (input.customerId) {
-        const credits = costCtsToCredits(estimatedCostCts, this.creditsClient.costPerCreditCts);
-        this.creditsClient.consumeCredits({
-          customerId: input.customerId,
-          operation: 'AI_SPECS_VENTILATE',
-          credits,
-          idempotencyKey: jobWid,
-        }).catch((err: Error) => {
-          this.logger.warn(
-            `Job ${jobWid}: VENTILATE_SUBCHAPTERS credits debit failed (fire-and-forget) — ` +
-            `customerId=${input.customerId} credits=${credits} error="${err.message}"`,
-          );
-        });
+        const credits = costCtsToCredits(
+          estimatedCostCts,
+          this.creditsClient.costPerCreditCts,
+        );
+        this.creditsClient
+          .consumeCredits({
+            customerId: input.customerId,
+            operation: "AI_SPECS_VENTILATE",
+            credits,
+            idempotencyKey: jobWid,
+          })
+          .catch((err: Error) => {
+            this.logger.warn(
+              `Job ${jobWid}: VENTILATE_SUBCHAPTERS credits debit failed (fire-and-forget) — ` +
+                `customerId=${input.customerId} credits=${credits} error="${err.message}"`,
+            );
+          });
       } else {
         this.logger.warn(
           `Job ${jobWid}: customerId absent in VENTILATE_SUBCHAPTERS input — credits debit skipped`,
@@ -617,12 +644,15 @@ export class AiJobsProcessor extends WorkerHost {
             outputTokens: totalOutputTokens,
           },
         });
-        this.logger.log(`Job ${jobWid}: CANCELLED during processVentilateSubChapters`);
+        this.logger.log(
+          `Job ${jobWid}: CANCELLED during processVentilateSubChapters`,
+        );
         return;
       }
 
       const errorCode = classifyAnthropicError(error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
 
       await this.prisma.wakaSpecAiJob.update({
         where: { wid: jobWid },
@@ -687,7 +717,7 @@ export class AiJobsProcessor extends WorkerHost {
       if (l1.subChaptersL2.length === 0) {
         subChapterSlots.push({
           l1Wid: l1.wid,
-          l2Wid: '',
+          l2Wid: "",
           title: l1.title,
           order: orderIndex++,
         });
@@ -708,7 +738,7 @@ export class AiJobsProcessor extends WorkerHost {
     // Construire le prompt de ventilation
     const subChapterList = subChapterSlots
       .map((s, i) => `${i + 1}. ${s.title}`)
-      .join('\n');
+      .join("\n");
 
     const systemPrompt = `${megaPrompt}\n\nTu es un expert en rédaction de spécifications fonctionnelles. Tu dois ventiler le contenu d'un chapitre parent en sections distinctes correspondant aux sous-chapitres attendus du template.`;
 
@@ -731,7 +761,9 @@ export class AiJobsProcessor extends WorkerHost {
       this.logger.error(
         `Job ${jobWid}: failed to parse sub-chapter ventilation JSON — raw: ${text.slice(0, 500)}`,
       );
-      throw new Error(`Failed to parse sub-chapter ventilation response: ${parseError}`);
+      throw new Error(
+        `Failed to parse sub-chapter ventilation response: ${parseError}`,
+      );
     }
 
     // Persister les sous-chapitres au fil de l'eau (UPSERT)
@@ -740,13 +772,14 @@ export class AiJobsProcessor extends WorkerHost {
     for (let i = 0; i < subChapterSlots.length; i++) {
       const slot = subChapterSlots[i];
       const ventilated = ventilatedContent.find((v) => v.index === i + 1);
-      const subContent = ventilated?.content?.trim() ?? '';
+      const subContent = ventilated?.content?.trim() ?? "";
 
-      const progress = subContent.length === 0
-        ? 0
-        : subContent.length < 50
-          ? 5
-          : Math.min(80, Math.round(subContent.length / 50));
+      const progress =
+        subContent.length === 0
+          ? 0
+          : subContent.length < 50
+            ? 5
+            : Math.min(80, Math.round(subContent.length / 50));
 
       const upserted = await this.prisma.wakaSpecSubChapterContent.upsert({
         where: {
@@ -834,29 +867,32 @@ export class AiJobsProcessor extends WorkerHost {
 
     const systemParam = [
       {
-        type: 'text' as const,
+        type: "text" as const,
         text: system,
-        cache_control: { type: 'ephemeral' as const },
+        cache_control: { type: "ephemeral" as const },
       },
-    ] as Anthropic.MessageCreateParamsNonStreaming['system'];
+    ] as Anthropic.MessageCreateParamsNonStreaming["system"];
 
     const response = await anthropic.messages.create({
       model,
       max_tokens: 8192,
       system: systemParam,
-      messages: [{ role: 'user', content: userMessage }],
+      messages: [{ role: "user", content: userMessage }],
     });
 
-    if (response.stop_reason === 'max_tokens') {
-      this.logger.warn(`callClaudeWithTokens: response truncated (max_tokens) — model=${model}`);
+    if (response.stop_reason === "max_tokens") {
+      this.logger.warn(
+        `callClaudeWithTokens: response truncated (max_tokens) — model=${model}`,
+      );
     }
 
     const textBlock = response.content.find(
-      (b: Anthropic.ContentBlock): b is Anthropic.TextBlock => b.type === 'text',
+      (b: Anthropic.ContentBlock): b is Anthropic.TextBlock =>
+        b.type === "text",
     );
 
     return {
-      text: textBlock?.text ?? '',
+      text: textBlock?.text ?? "",
       inputTokens: response.usage?.input_tokens ?? 0,
       outputTokens: response.usage?.output_tokens ?? 0,
     };

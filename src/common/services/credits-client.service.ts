@@ -1,10 +1,10 @@
-import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { HttpException, HttpStatus, Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 
 export type AiCreditsOperation =
-  | 'AI_SPECS_GENERATE'
-  | 'AI_SPECS_VENTILATE'
-  | 'AI_SPECS_EVALUATE';
+  | "AI_SPECS_GENERATE"
+  | "AI_SPECS_VENTILATE"
+  | "AI_SPECS_EVALUATE";
 
 export interface ConsumeCreditsInput {
   customerId: string;
@@ -58,18 +58,18 @@ export class CreditsClientService {
 
   constructor(private readonly configService: ConfigService) {
     this.creditsServiceUrl =
-      this.configService.get<string>('CREDITS_SERVICE_URL') ??
-      'http://ws-serv-credits:3010/api';
+      this.configService.get<string>("CREDITS_SERVICE_URL") ??
+      "http://ws-serv-credits:3010/api";
     this.creditsApiSecret =
-      this.configService.get<string>('CREDITS_API_SECRET') ?? '';
+      this.configService.get<string>("CREDITS_API_SECRET") ?? "";
     this.costPerCreditCts = this.configService.get<number>(
-      'AI_COST_PER_CREDIT_CTS',
+      "AI_COST_PER_CREDIT_CTS",
       10,
     );
 
     if (!this.creditsApiSecret) {
       this.logger.warn(
-        'CREDITS_API_SECRET is not configured — credits consumption will be skipped',
+        "CREDITS_API_SECRET is not configured — credits consumption will be skipped",
       );
     }
   }
@@ -116,15 +116,15 @@ export class CreditsClientService {
       operation: input.operation,
       credits: input.credits,
     };
-    if (input.appId) body['appId'] = input.appId;
-    if (input.idempotencyKey) body['idempotencyKey'] = input.idempotencyKey;
+    if (input.appId) body["appId"] = input.appId;
+    if (input.idempotencyKey) body["idempotencyKey"] = input.idempotencyKey;
 
     try {
       const response = await fetch(url, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': this.creditsApiSecret,
+          "Content-Type": "application/json",
+          "x-api-key": this.creditsApiSecret,
         },
         body: JSON.stringify(body),
         // Timeout court — ne pas bloquer la réponse utilisateur sur une lenteur credits
@@ -132,17 +132,19 @@ export class CreditsClientService {
       });
 
       if (response.status === 402) {
-        const data = (await response.json().catch(() => ({}))) as Partial<InsufficientCreditsError>;
+        const data = (await response
+          .json()
+          .catch(() => ({}))) as Partial<InsufficientCreditsError>;
         this.logger.warn(
           `consumeCredits: 402 insufficient credits — customerId=${input.customerId} ` +
             `operation=${input.operation} required=${input.credits} ` +
-            `available=${data.available ?? 'unknown'}`,
+            `available=${data.available ?? "unknown"}`,
         );
         // 402 est une erreur métier intentionnelle → remonter à l'utilisateur
         throw new HttpException(
           {
             statusCode: HttpStatus.PAYMENT_REQUIRED,
-            error: 'Payment Required',
+            error: "Payment Required",
             message: `Crédits insuffisants pour l'opération ${input.operation}.`,
             available: data.available ?? 0,
             required: data.required ?? input.credits,
@@ -153,7 +155,7 @@ export class CreditsClientService {
 
       if (!response.ok) {
         // 5xx / timeout côté credits : best-effort, ne PAS bloquer la réponse
-        const text = await response.text().catch(() => '');
+        const text = await response.text().catch(() => "");
         this.logger.warn(
           `consumeCredits: upstream error HTTP ${response.status} — ` +
             `customerId=${input.customerId} operation=${input.operation} body="${text.slice(0, 200)}"`,
@@ -161,10 +163,12 @@ export class CreditsClientService {
         return;
       }
 
-      const result = (await response.json().catch(() => ({ consumed: true }))) as ConsumeCreditsResult;
+      const result = (await response
+        .json()
+        .catch(() => ({ consumed: true }))) as ConsumeCreditsResult;
       this.logger.log(
         `consumeCredits: OK — customerId=${input.customerId} operation=${input.operation} ` +
-          `credits=${input.credits} remaining=${result.remaining ?? 'unknown'}`,
+          `credits=${input.credits} remaining=${result.remaining ?? "unknown"}`,
       );
     } catch (error) {
       // Remonter uniquement le 402 (HttpException avec PAYMENT_REQUIRED)

@@ -1,12 +1,16 @@
 // Mocks virtuels pnpm strict
-jest.mock('pg', () => ({ Pool: jest.fn() }), { virtual: true });
-jest.mock('@prisma/adapter-pg', () => ({ PrismaPg: jest.fn() }), { virtual: true });
-jest.mock('@prisma/client', () => ({ PrismaClient: jest.fn() }), { virtual: true });
+jest.mock("pg", () => ({ Pool: jest.fn() }), { virtual: true });
+jest.mock("@prisma/adapter-pg", () => ({ PrismaPg: jest.fn() }), {
+  virtual: true,
+});
+jest.mock("@prisma/client", () => ({ PrismaClient: jest.fn() }), {
+  virtual: true,
+});
 
-import { Test, TestingModule } from '@nestjs/testing';
-import { TemplatesService } from './templates.service';
-import { PrismaService } from '../../prisma/prisma.service';
-import { NotFoundException } from '@nestjs/common';
+import { Test, TestingModule } from "@nestjs/testing";
+import { TemplatesService } from "./templates.service";
+import { PrismaService } from "../../prisma/prisma.service";
+import { NotFoundException } from "@nestjs/common";
 
 const mockPrismaService = {
   wakaSpecTemplate: {
@@ -39,7 +43,7 @@ const mockPrismaService = {
   $transaction: jest.fn(),
 };
 
-describe('TemplatesService', () => {
+describe("TemplatesService", () => {
   let service: TemplatesService;
   let prisma: typeof mockPrismaService;
 
@@ -59,13 +63,13 @@ describe('TemplatesService', () => {
 
   // ── findAll ─────────────────────────────────────────────────────
 
-  describe('findAll', () => {
-    it('should return active templates with full hierarchy', async () => {
+  describe("findAll", () => {
+    it("should return active templates with full hierarchy", async () => {
       const templates = [
         {
           id: 1,
-          wid: 'tpl-1',
-          title: 'Template 1',
+          wid: "tpl-1",
+          title: "Template 1",
           isActive: true,
           chapters: [],
         },
@@ -79,7 +83,7 @@ describe('TemplatesService', () => {
         where: { isActive: true },
         include: expect.objectContaining({
           chapters: expect.objectContaining({
-            orderBy: { order: 'asc' },
+            orderBy: { order: "asc" },
           }),
         }),
       });
@@ -88,34 +92,34 @@ describe('TemplatesService', () => {
 
   // ── findOne ─────────────────────────────────────────────────────
 
-  describe('findOne', () => {
-    it('should return a template by wid', async () => {
+  describe("findOne", () => {
+    it("should return a template by wid", async () => {
       const template = {
         id: 1,
-        wid: 'tpl-1',
-        title: 'Template 1',
+        wid: "tpl-1",
+        title: "Template 1",
         isActive: true,
         chapters: [],
       };
       prisma.wakaSpecTemplate.findUnique.mockResolvedValue(template);
 
-      const result = await service.findOne('tpl-1');
+      const result = await service.findOne("tpl-1");
 
       expect(result).toEqual(template);
       expect(prisma.wakaSpecTemplate.findUnique).toHaveBeenCalledWith({
-        where: { wid: 'tpl-1' },
+        where: { wid: "tpl-1" },
         include: expect.objectContaining({
           chapters: expect.objectContaining({
-            orderBy: { order: 'asc' },
+            orderBy: { order: "asc" },
           }),
         }),
       });
     });
 
-    it('should throw NotFoundException for unknown wid', async () => {
+    it("should throw NotFoundException for unknown wid", async () => {
       prisma.wakaSpecTemplate.findUnique.mockResolvedValue(null);
 
-      await expect(service.findOne('unknown')).rejects.toThrow(
+      await expect(service.findOne("unknown")).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -123,16 +127,16 @@ describe('TemplatesService', () => {
 
   // ── create ──────────────────────────────────────────────────────
 
-  describe('create', () => {
-    it('should create a template with correct data', async () => {
+  describe("create", () => {
+    it("should create a template with correct data", async () => {
       const dto = {
-        title: 'New Template',
-        userDescription: 'User desc',
-        docDescription: 'Doc desc',
-        megaPrompt: 'Mega prompt',
-        createdBy: 'user-1',
+        title: "New Template",
+        userDescription: "User desc",
+        docDescription: "Doc desc",
+        megaPrompt: "Mega prompt",
+        createdBy: "user-1",
       };
-      const created = { id: 1, wid: 'tpl-new', ...dto, chapters: [] };
+      const created = { id: 1, wid: "tpl-new", ...dto, chapters: [] };
       prisma.wakaSpecTemplate.create.mockResolvedValue(created);
 
       const result = await service.create(dto);
@@ -153,48 +157,48 @@ describe('TemplatesService', () => {
 
   // ── update ──────────────────────────────────────────────────────
 
-  describe('update', () => {
-    it('should update template fields', async () => {
+  describe("update", () => {
+    it("should update template fields", async () => {
       const existing = {
         id: 1,
-        wid: 'tpl-1',
-        title: 'Old',
+        wid: "tpl-1",
+        title: "Old",
         isActive: true,
         chapters: [],
       };
       prisma.wakaSpecTemplate.findUnique.mockResolvedValue(existing);
 
-      const dto = { title: 'Updated Title' };
+      const dto = { title: "Updated Title" };
       const updated = { ...existing, ...dto };
       prisma.wakaSpecTemplate.update.mockResolvedValue(updated);
 
-      const result = await service.update('tpl-1', dto);
+      const result = await service.update("tpl-1", dto);
 
       expect(result).toEqual(updated);
       expect(prisma.wakaSpecTemplate.update).toHaveBeenCalledWith({
-        where: { wid: 'tpl-1' },
+        where: { wid: "tpl-1" },
         data: dto,
         include: expect.any(Object),
       });
     });
 
-    it('should throw NotFoundException if template does not exist', async () => {
+    it("should throw NotFoundException if template does not exist", async () => {
       prisma.wakaSpecTemplate.findUnique.mockResolvedValue(null);
 
-      await expect(
-        service.update('unknown', { title: 'X' }),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.update("unknown", { title: "X" })).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
   // ── softDelete ──────────────────────────────────────────────────
 
-  describe('softDelete', () => {
-    it('should set isActive to false', async () => {
+  describe("softDelete", () => {
+    it("should set isActive to false", async () => {
       const existing = {
         id: 1,
-        wid: 'tpl-1',
-        title: 'Template',
+        wid: "tpl-1",
+        title: "Template",
         isActive: true,
         chapters: [],
       };
@@ -204,11 +208,11 @@ describe('TemplatesService', () => {
         isActive: false,
       });
 
-      const result = await service.softDelete('tpl-1');
+      const result = await service.softDelete("tpl-1");
 
       expect(result.isActive).toBe(false);
       expect(prisma.wakaSpecTemplate.update).toHaveBeenCalledWith({
-        where: { wid: 'tpl-1' },
+        where: { wid: "tpl-1" },
         data: { isActive: false },
       });
     });
@@ -216,12 +220,12 @@ describe('TemplatesService', () => {
 
   // ── addChapter ──────────────────────────────────────────────────
 
-  describe('addChapter', () => {
-    it('should create a chapter with the correct order', async () => {
+  describe("addChapter", () => {
+    it("should create a chapter with the correct order", async () => {
       const template = {
         id: 1,
-        wid: 'tpl-1',
-        title: 'T',
+        wid: "tpl-1",
+        title: "T",
         isActive: true,
         chapters: [],
       };
@@ -231,37 +235,37 @@ describe('TemplatesService', () => {
       });
 
       const dto = {
-        title: 'Chapter 1',
-        prompt: 'Generate something',
+        title: "Chapter 1",
+        prompt: "Generate something",
       };
       const created = {
         id: 10,
-        wid: 'ch-1',
+        wid: "ch-1",
         ...dto,
         order: 3,
         subChaptersL1: [],
       };
       prisma.wakaSpecTemplateChapter.create.mockResolvedValue(created);
 
-      const result = await service.addChapter('tpl-1', dto);
+      const result = await service.addChapter("tpl-1", dto);
 
       expect(result).toEqual(created);
       expect(prisma.wakaSpecTemplateChapter.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             templateId: 1,
-            title: 'Chapter 1',
+            title: "Chapter 1",
             order: 3,
           }),
         }),
       );
     });
 
-    it('should start at order 0 when no chapters exist', async () => {
+    it("should start at order 0 when no chapters exist", async () => {
       const template = {
         id: 1,
-        wid: 'tpl-1',
-        title: 'T',
+        wid: "tpl-1",
+        title: "T",
         isActive: true,
         chapters: [],
       };
@@ -274,9 +278,9 @@ describe('TemplatesService', () => {
         order: 0,
       });
 
-      await service.addChapter('tpl-1', {
-        title: 'First',
-        prompt: 'p',
+      await service.addChapter("tpl-1", {
+        title: "First",
+        prompt: "p",
       });
 
       expect(prisma.wakaSpecTemplateChapter.create).toHaveBeenCalledWith(
@@ -289,110 +293,110 @@ describe('TemplatesService', () => {
 
   // ── updateChapter ───────────────────────────────────────────────
 
-  describe('updateChapter', () => {
-    it('should update a chapter', async () => {
+  describe("updateChapter", () => {
+    it("should update a chapter", async () => {
       const template = {
         id: 1,
-        wid: 'tpl-1',
-        title: 'T',
+        wid: "tpl-1",
+        title: "T",
         isActive: true,
         chapters: [],
       };
       prisma.wakaSpecTemplate.findUnique.mockResolvedValue(template);
       prisma.wakaSpecTemplateChapter.findUnique.mockResolvedValue({
         id: 10,
-        wid: 'ch-1',
+        wid: "ch-1",
         templateId: 1,
       });
       prisma.wakaSpecTemplateChapter.update.mockResolvedValue({
         id: 10,
-        wid: 'ch-1',
-        title: 'Updated',
+        wid: "ch-1",
+        title: "Updated",
       });
 
-      const result = await service.updateChapter('tpl-1', 'ch-1', {
-        title: 'Updated',
+      const result = await service.updateChapter("tpl-1", "ch-1", {
+        title: "Updated",
       });
 
-      expect(result.title).toBe('Updated');
+      expect(result.title).toBe("Updated");
     });
 
-    it('should throw NotFoundException if chapter does not belong to template', async () => {
+    it("should throw NotFoundException if chapter does not belong to template", async () => {
       const template = {
         id: 1,
-        wid: 'tpl-1',
-        title: 'T',
+        wid: "tpl-1",
+        title: "T",
         isActive: true,
         chapters: [],
       };
       prisma.wakaSpecTemplate.findUnique.mockResolvedValue(template);
       prisma.wakaSpecTemplateChapter.findUnique.mockResolvedValue({
         id: 10,
-        wid: 'ch-1',
+        wid: "ch-1",
         templateId: 999, // different template
       });
 
       await expect(
-        service.updateChapter('tpl-1', 'ch-1', { title: 'X' }),
+        service.updateChapter("tpl-1", "ch-1", { title: "X" }),
       ).rejects.toThrow(NotFoundException);
     });
   });
 
   // ── deleteChapter ───────────────────────────────────────────────
 
-  describe('deleteChapter', () => {
-    it('should delete the chapter', async () => {
+  describe("deleteChapter", () => {
+    it("should delete the chapter", async () => {
       const template = {
         id: 1,
-        wid: 'tpl-1',
-        title: 'T',
+        wid: "tpl-1",
+        title: "T",
         isActive: true,
         chapters: [],
       };
       prisma.wakaSpecTemplate.findUnique.mockResolvedValue(template);
       prisma.wakaSpecTemplateChapter.findUnique.mockResolvedValue({
         id: 10,
-        wid: 'ch-1',
+        wid: "ch-1",
         templateId: 1,
       });
       prisma.wakaSpecTemplateChapter.delete.mockResolvedValue({
         id: 10,
-        wid: 'ch-1',
+        wid: "ch-1",
       });
 
-      const result = await service.deleteChapter('tpl-1', 'ch-1');
+      const result = await service.deleteChapter("tpl-1", "ch-1");
 
-      expect(result).toEqual({ id: 10, wid: 'ch-1' });
+      expect(result).toEqual({ id: 10, wid: "ch-1" });
       expect(prisma.wakaSpecTemplateChapter.delete).toHaveBeenCalledWith({
-        where: { wid: 'ch-1' },
+        where: { wid: "ch-1" },
       });
     });
 
-    it('should throw NotFoundException if chapter not found', async () => {
+    it("should throw NotFoundException if chapter not found", async () => {
       const template = {
         id: 1,
-        wid: 'tpl-1',
-        title: 'T',
+        wid: "tpl-1",
+        title: "T",
         isActive: true,
         chapters: [],
       };
       prisma.wakaSpecTemplate.findUnique.mockResolvedValue(template);
       prisma.wakaSpecTemplateChapter.findUnique.mockResolvedValue(null);
 
-      await expect(
-        service.deleteChapter('tpl-1', 'unknown'),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.deleteChapter("tpl-1", "unknown")).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
   // ── reorderChapters ─────────────────────────────────────────────
 
-  describe('reorderChapters', () => {
-    it('should use $transaction to reorder chapters', async () => {
+  describe("reorderChapters", () => {
+    it("should use $transaction to reorder chapters", async () => {
       const template = {
         id: 1,
-        wid: 'tpl-1',
-        title: 'T',
+        wid: "tpl-1",
+        title: "T",
         isActive: true,
         chapters: [],
       };
@@ -402,12 +406,12 @@ describe('TemplatesService', () => {
 
       const dto = {
         items: [
-          { wid: 'ch-1', order: 1 },
-          { wid: 'ch-2', order: 0 },
+          { wid: "ch-1", order: 1 },
+          { wid: "ch-2", order: 0 },
         ],
       };
 
-      await service.reorderChapters('tpl-1', dto);
+      await service.reorderChapters("tpl-1", dto);
 
       expect(prisma.$transaction).toHaveBeenCalledWith(
         expect.arrayContaining([expect.any(Object)]),
@@ -417,152 +421,142 @@ describe('TemplatesService', () => {
 
   // ── addSubChapterL1 ─────────────────────────────────────────────
 
-  describe('addSubChapterL1', () => {
-    it('should create an L1 sub-chapter with correct order', async () => {
+  describe("addSubChapterL1", () => {
+    it("should create an L1 sub-chapter with correct order", async () => {
       prisma.wakaSpecTemplateChapter.findUnique.mockResolvedValue({
         id: 10,
-        wid: 'ch-1',
+        wid: "ch-1",
       });
       prisma.wakaSpecTemplateSubChapterL1.aggregate.mockResolvedValue({
         _max: { order: 1 },
       });
       prisma.wakaSpecTemplateSubChapterL1.create.mockResolvedValue({
         id: 20,
-        wid: 'sc1-1',
-        title: 'Sub L1',
+        wid: "sc1-1",
+        title: "Sub L1",
         order: 2,
         subChaptersL2: [],
       });
 
-      const result = await service.addSubChapterL1('ch-1', {
-        title: 'Sub L1',
+      const result = await service.addSubChapterL1("ch-1", {
+        title: "Sub L1",
       });
 
       expect(result.order).toBe(2);
-      expect(
-        prisma.wakaSpecTemplateSubChapterL1.create,
-      ).toHaveBeenCalledWith(
+      expect(prisma.wakaSpecTemplateSubChapterL1.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             chapterId: 10,
-            title: 'Sub L1',
+            title: "Sub L1",
             order: 2,
           }),
         }),
       );
     });
 
-    it('should throw NotFoundException if chapter does not exist', async () => {
+    it("should throw NotFoundException if chapter does not exist", async () => {
       prisma.wakaSpecTemplateChapter.findUnique.mockResolvedValue(null);
 
       await expect(
-        service.addSubChapterL1('unknown', { title: 'X' }),
+        service.addSubChapterL1("unknown", { title: "X" }),
       ).rejects.toThrow(NotFoundException);
     });
   });
 
   // ── deleteSubChapterL1 ─────────────────────────────────────────
 
-  describe('deleteSubChapterL1', () => {
-    it('should delete L1 sub-chapter', async () => {
+  describe("deleteSubChapterL1", () => {
+    it("should delete L1 sub-chapter", async () => {
       prisma.wakaSpecTemplateSubChapterL1.findUnique.mockResolvedValue({
         id: 20,
-        wid: 'sc1-1',
+        wid: "sc1-1",
       });
       prisma.wakaSpecTemplateSubChapterL1.delete.mockResolvedValue({
         id: 20,
-        wid: 'sc1-1',
+        wid: "sc1-1",
       });
 
-      const result = await service.deleteSubChapterL1('sc1-1');
+      const result = await service.deleteSubChapterL1("sc1-1");
 
-      expect(result).toEqual({ id: 20, wid: 'sc1-1' });
+      expect(result).toEqual({ id: 20, wid: "sc1-1" });
     });
 
-    it('should throw NotFoundException if L1 does not exist', async () => {
-      prisma.wakaSpecTemplateSubChapterL1.findUnique.mockResolvedValue(
-        null,
-      );
+    it("should throw NotFoundException if L1 does not exist", async () => {
+      prisma.wakaSpecTemplateSubChapterL1.findUnique.mockResolvedValue(null);
 
-      await expect(
-        service.deleteSubChapterL1('unknown'),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.deleteSubChapterL1("unknown")).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
   // ── addSubChapterL2 ─────────────────────────────────────────────
 
-  describe('addSubChapterL2', () => {
-    it('should create an L2 sub-chapter with correct order', async () => {
+  describe("addSubChapterL2", () => {
+    it("should create an L2 sub-chapter with correct order", async () => {
       prisma.wakaSpecTemplateSubChapterL1.findUnique.mockResolvedValue({
         id: 20,
-        wid: 'sc1-1',
+        wid: "sc1-1",
       });
       prisma.wakaSpecTemplateSubChapterL2.aggregate.mockResolvedValue({
         _max: { order: 0 },
       });
       prisma.wakaSpecTemplateSubChapterL2.create.mockResolvedValue({
         id: 30,
-        wid: 'sc2-1',
-        title: 'Sub L2',
+        wid: "sc2-1",
+        title: "Sub L2",
         order: 1,
       });
 
-      const result = await service.addSubChapterL2('sc1-1', {
-        title: 'Sub L2',
+      const result = await service.addSubChapterL2("sc1-1", {
+        title: "Sub L2",
       });
 
       expect(result.order).toBe(1);
-      expect(
-        prisma.wakaSpecTemplateSubChapterL2.create,
-      ).toHaveBeenCalledWith(
+      expect(prisma.wakaSpecTemplateSubChapterL2.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             subChapterL1Id: 20,
-            title: 'Sub L2',
+            title: "Sub L2",
             order: 1,
           }),
         }),
       );
     });
 
-    it('should throw NotFoundException if L1 parent does not exist', async () => {
-      prisma.wakaSpecTemplateSubChapterL1.findUnique.mockResolvedValue(
-        null,
-      );
+    it("should throw NotFoundException if L1 parent does not exist", async () => {
+      prisma.wakaSpecTemplateSubChapterL1.findUnique.mockResolvedValue(null);
 
       await expect(
-        service.addSubChapterL2('unknown', { title: 'X' }),
+        service.addSubChapterL2("unknown", { title: "X" }),
       ).rejects.toThrow(NotFoundException);
     });
   });
 
   // ── deleteSubChapterL2 ─────────────────────────────────────────
 
-  describe('deleteSubChapterL2', () => {
-    it('should delete L2 sub-chapter', async () => {
+  describe("deleteSubChapterL2", () => {
+    it("should delete L2 sub-chapter", async () => {
       prisma.wakaSpecTemplateSubChapterL2.findUnique.mockResolvedValue({
         id: 30,
-        wid: 'sc2-1',
+        wid: "sc2-1",
       });
       prisma.wakaSpecTemplateSubChapterL2.delete.mockResolvedValue({
         id: 30,
-        wid: 'sc2-1',
+        wid: "sc2-1",
       });
 
-      const result = await service.deleteSubChapterL2('sc2-1');
+      const result = await service.deleteSubChapterL2("sc2-1");
 
-      expect(result).toEqual({ id: 30, wid: 'sc2-1' });
+      expect(result).toEqual({ id: 30, wid: "sc2-1" });
     });
 
-    it('should throw NotFoundException if L2 does not exist', async () => {
-      prisma.wakaSpecTemplateSubChapterL2.findUnique.mockResolvedValue(
-        null,
-      );
+    it("should throw NotFoundException if L2 does not exist", async () => {
+      prisma.wakaSpecTemplateSubChapterL2.findUnique.mockResolvedValue(null);
 
-      await expect(
-        service.deleteSubChapterL2('unknown'),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.deleteSubChapterL2("unknown")).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 });

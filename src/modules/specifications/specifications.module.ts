@@ -1,7 +1,7 @@
-import { Module } from '@nestjs/common';
-import { TemplatesModule } from '../templates/templates.module.js';
-import { SpecificationsController } from './specifications.controller.js';
-import { SpecificationsService } from './specifications.service.js';
+import { Module } from "@nestjs/common";
+import { TemplatesModule } from "../templates/templates.module.js";
+import { SpecificationsController } from "./specifications.controller.js";
+import { SpecificationsService } from "./specifications.service.js";
 
 @Module({
   imports: [TemplatesModule],

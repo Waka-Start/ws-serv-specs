@@ -3,41 +3,41 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
-import { PrismaService } from '../../prisma/prisma.service.js';
-import Anthropic from '@anthropic-ai/sdk';
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { InjectQueue } from "@nestjs/bullmq";
+import { Queue } from "bullmq";
+import { PrismaService } from "../../prisma/prisma.service.js";
+import Anthropic from "@anthropic-ai/sdk";
 import {
   CreditsClientService,
   costCtsToCredits,
-} from '../../common/services/credits-client.service.js';
-import { AIAction, EnumAiJobStatus, EnumAiJobType } from '@prisma/client';
-import { VentilateDto } from './dto/ventilate.dto.js';
-import { GenerateChapterDto } from './dto/generate-chapter.dto.js';
-import { GenerateChapterResponseDto } from './dto/generate-chapter-response.dto.js';
-import { ModifyContentDto } from './dto/modify-content.dto.js';
-import { DeleteContentDto } from './dto/delete-content.dto.js';
-import { TestPromptDto } from './dto/test-prompt.dto.js';
+} from "../../common/services/credits-client.service.js";
+import { AIAction, EnumAiJobStatus, EnumAiJobType } from "@prisma/client";
+import { VentilateDto } from "./dto/ventilate.dto.js";
+import { GenerateChapterDto } from "./dto/generate-chapter.dto.js";
+import { GenerateChapterResponseDto } from "./dto/generate-chapter-response.dto.js";
+import { ModifyContentDto } from "./dto/modify-content.dto.js";
+import { DeleteContentDto } from "./dto/delete-content.dto.js";
+import { TestPromptDto } from "./dto/test-prompt.dto.js";
 import {
   SuggestQuestionsDto,
   SuggestedQuestion,
-} from './dto/suggest-questions.dto.js';
+} from "./dto/suggest-questions.dto.js";
 import {
   EvaluateChapterDto,
   EvaluateAllChaptersDto,
   ChapterEvaluationDetails,
-} from './dto/evaluate-chapter.dto.js';
+} from "./dto/evaluate-chapter.dto.js";
 import {
   MODIFY_CONTENT_SYSTEM,
   buildModifyContentUserMessage,
-} from './prompts/modify-content.prompt.js';
+} from "./prompts/modify-content.prompt.js";
 import {
   SUGGEST_QUESTIONS_SYSTEM,
   buildSuggestQuestionsUserMessage,
   PROMPT_VERSION,
-} from './prompts/suggest-questions.prompt.js';
+} from "./prompts/suggest-questions.prompt.js";
 
 @Injectable()
 export class AiService {
@@ -50,27 +50,34 @@ export class AiService {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     private readonly creditsClient: CreditsClientService,
-    @InjectQueue('ai-jobs') private readonly aiJobsQueue: Queue,
+    @InjectQueue("ai-jobs") private readonly aiJobsQueue: Queue,
   ) {
     this.anthropic = new Anthropic({
-      apiKey: this.configService.get<string>('ANTHROPIC_API_KEY'),
+      apiKey: this.configService.get<string>("ANTHROPIC_API_KEY"),
     });
     this.model = this.configService.get<string>(
-      'ANTHROPIC_MODEL',
-      'claude-sonnet-4-20250514',
+      "ANTHROPIC_MODEL",
+      "claude-sonnet-4-20250514",
     );
     // Backward compat : ANTHROPIC_EVAL_MODEL deprecated en faveur de ANTHROPIC_MODEL_LIGHT
-    const deprecatedEvalModel = this.configService.get<string>('ANTHROPIC_EVAL_MODEL');
+    const deprecatedEvalModel = this.configService.get<string>(
+      "ANTHROPIC_EVAL_MODEL",
+    );
     if (deprecatedEvalModel) {
-      this.logger.warn('ANTHROPIC_EVAL_MODEL is deprecated, use ANTHROPIC_MODEL_LIGHT instead');
+      this.logger.warn(
+        "ANTHROPIC_EVAL_MODEL is deprecated, use ANTHROPIC_MODEL_LIGHT instead",
+      );
     }
     this.modelLight = this.configService.get<string>(
-      'ANTHROPIC_MODEL_LIGHT',
-      deprecatedEvalModel ?? 'claude-haiku-4-5-20251001',
+      "ANTHROPIC_MODEL_LIGHT",
+      deprecatedEvalModel ?? "claude-haiku-4-5-20251001",
     );
   }
 
-  async ventilate(dto: VentilateDto, customerId?: string): Promise<{ jobWid: string; status: string }> {
+  async ventilate(
+    dto: VentilateDto,
+    customerId?: string,
+  ): Promise<{ jobWid: string; status: string }> {
     // Vérifier que la specification existe
     const specification = await this.prisma.wakaSpecification.findUnique({
       where: { wid: dto.specificationWid },
@@ -117,7 +124,7 @@ export class AiService {
 
     // Ajouter le job à la queue BullMQ (pas de retry pour ne pas re-consommer des tokens)
     await this.aiJobsQueue.add(
-      'ventilate',
+      "ventilate",
       { jobWid: job.wid },
       {
         jobId: job.wid,
@@ -199,7 +206,7 @@ export class AiService {
     });
 
     await this.aiJobsQueue.add(
-      'ventilate-subchapters',
+      "ventilate-subchapters",
       { jobWid: job.wid },
       {
         jobId: job.wid,
@@ -216,12 +223,16 @@ export class AiService {
     return { jobId: job.wid };
   }
 
-  async generateChapter(dto: GenerateChapterDto, customerId?: string): Promise<GenerateChapterResponseDto> {
+  async generateChapter(
+    dto: GenerateChapterDto,
+    customerId?: string,
+  ): Promise<GenerateChapterResponseDto> {
     // Sanitize userInstruction : trim + cap à 20 000 chars pour éviter un prompt explosé
     const MAX_USER_INSTRUCTION_CHARS = 20_000;
     const sanitizedInstruction = dto.userInstruction?.trim()
       ? dto.userInstruction.trim().length > MAX_USER_INSTRUCTION_CHARS
-        ? dto.userInstruction.trim().slice(0, MAX_USER_INSTRUCTION_CHARS) + '\n[instruction tronquée]'
+        ? dto.userInstruction.trim().slice(0, MAX_USER_INSTRUCTION_CHARS) +
+          "\n[instruction tronquée]"
         : dto.userInstruction.trim()
       : undefined;
 
@@ -231,7 +242,7 @@ export class AiService {
         template: {
           include: {
             chapters: {
-              orderBy: { order: 'asc' },
+              orderBy: { order: "asc" },
             },
           },
         },
@@ -286,11 +297,11 @@ export class AiService {
           const title = templateChaptersMap.get(ch.chapterWid) ?? ch.chapterWid;
           const truncated =
             ch.content!.length > MAX_CROSS_CHAPTER_CHARS
-              ? ch.content!.slice(0, MAX_CROSS_CHAPTER_CHARS) + '…'
+              ? ch.content!.slice(0, MAX_CROSS_CHAPTER_CHARS) + "…"
               : ch.content!;
           return `[${title}]:\n${truncated}`;
         })
-        .join('\n\n');
+        .join("\n\n");
       crossContextSize = crossContext.length;
       userMessage += `\n\nContexte : voici le contenu déjà rédigé dans les autres chapitres de la spécification :\n\n<user_data>\n${crossContext}\n</user_data>`;
     }
@@ -322,9 +333,9 @@ export class AiService {
 
       this.logger.error(
         `generateChapter failed — specificationWid=${dto.specificationWid} chapterWid=${dto.chapterWid} ` +
-        `userInstructionChars=${sanitizedInstruction?.length ?? 0} crossContextChars=${crossContextSize} ` +
-        `userMessageChars=${userMessage.length} ` +
-        `anthropicStatus=${anthropicStatus ?? 'n/a'} anthropicMessage="${anthropicMessage}"`,
+          `userInstructionChars=${sanitizedInstruction?.length ?? 0} crossContextChars=${crossContextSize} ` +
+          `userMessageChars=${userMessage.length} ` +
+          `anthropicStatus=${anthropicStatus ?? "n/a"} anthropicMessage="${anthropicMessage}"`,
         error instanceof Error ? error.stack : undefined,
       );
       throw error;
@@ -357,11 +368,16 @@ export class AiService {
     // - Réseau/5xx → fire-and-forget (warn log), ne bloque pas la réponse
     // Grille Sonnet 4 : $3/M input, $15/M output
     if (customerId) {
-      const costCts = Math.round((generateInputTokens * 3 + generateOutputTokens * 15) / 10_000);
-      const credits = costCtsToCredits(costCts, this.creditsClient.costPerCreditCts);
+      const costCts = Math.round(
+        (generateInputTokens * 3 + generateOutputTokens * 15) / 10_000,
+      );
+      const credits = costCtsToCredits(
+        costCts,
+        this.creditsClient.costPerCreditCts,
+      );
       await this.creditsClient.consumeCredits({
         customerId,
-        operation: 'AI_SPECS_GENERATE',
+        operation: "AI_SPECS_GENERATE",
         credits,
       });
     }
@@ -373,10 +389,15 @@ export class AiService {
     specificationId: number,
     chapterWid: string,
   ): Promise<GenerateChapterResponseDto> {
-    const updatedChapterContent = await this.evaluateChapterInternal(specificationId, chapterWid);
+    const updatedChapterContent = await this.evaluateChapterInternal(
+      specificationId,
+      chapterWid,
+    );
 
     if (!updatedChapterContent) {
-      throw new NotFoundException(`Chapter ${chapterWid} not found after evaluation`);
+      throw new NotFoundException(
+        `Chapter ${chapterWid} not found after evaluation`,
+      );
     }
 
     // Récupérer tous les chapitres pour le calcul filled/total/percent
@@ -405,7 +426,7 @@ export class AiService {
         wid: updatedChapterContent.wid,
         chapterWid: updatedChapterContent.chapterWid,
         chapterTitle: updatedChapterContent.chapterTitle,
-        content: updatedChapterContent.content ?? '',
+        content: updatedChapterContent.content ?? "",
         progress: updatedChapterContent.progress,
         isFilled: updatedChapterContent.isFilled,
         evaluationDetails: evalDetails
@@ -451,14 +472,18 @@ export class AiService {
     }
 
     const userMessage = buildModifyContentUserMessage({
-      chapterContent: chapterContent.content ?? '',
+      chapterContent: chapterContent.content ?? "",
       selectedText: dto.selectedText,
       userInstruction: dto.userInstruction,
     });
 
-    const modifyResult = await this.callClaude(MODIFY_CONTENT_SYSTEM, userMessage, {
-      returnTokens: true,
-    });
+    const modifyResult = await this.callClaude(
+      MODIFY_CONTENT_SYSTEM,
+      userMessage,
+      {
+        returnTokens: true,
+      },
+    );
     const aiResponse = modifyResult.text;
 
     await this.prisma.wakaSpecChapterContent.update({
@@ -484,12 +509,16 @@ export class AiService {
     // Débit crédits post-call (même convention que generateChapter)
     if (customerId) {
       const costCts = Math.round(
-        (modifyResult.inputTokens * 3 + modifyResult.outputTokens * 15) / 10_000,
+        (modifyResult.inputTokens * 3 + modifyResult.outputTokens * 15) /
+          10_000,
       );
-      const credits = costCtsToCredits(costCts, this.creditsClient.costPerCreditCts);
+      const credits = costCtsToCredits(
+        costCts,
+        this.creditsClient.costPerCreditCts,
+      );
       await this.creditsClient.consumeCredits({
         customerId,
-        operation: 'AI_SPECS_GENERATE',
+        operation: "AI_SPECS_GENERATE",
         credits,
       });
     }
@@ -521,8 +550,8 @@ export class AiService {
       );
     }
 
-    const currentContent = chapterContent.content ?? '';
-    const updatedContent = currentContent.replace(dto.selectedText, '');
+    const currentContent = chapterContent.content ?? "";
+    const updatedContent = currentContent.replace(dto.selectedText, "");
 
     await this.prisma.wakaSpecChapterContent.update({
       where: { id: chapterContent.id },
@@ -558,7 +587,7 @@ export class AiService {
 
     return this.prisma.wakaSpecAIHistory.findMany({
       where: { specificationId: specification.id },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
     });
   }
 
@@ -572,8 +601,8 @@ export class AiService {
 
     const subChapterList =
       dto.subChapterTitles && dto.subChapterTitles.length > 0
-        ? dto.subChapterTitles.join(', ')
-        : 'Aucun sous-chapitre défini';
+        ? dto.subChapterTitles.join(", ")
+        : "Aucun sous-chapitre défini";
 
     const userMessage = buildSuggestQuestionsUserMessage({
       chapterTitle: dto.chapterTitle,
@@ -584,28 +613,33 @@ export class AiService {
     });
 
     const returnQuestionsTool: Anthropic.Tool = {
-      name: 'return_questions',
+      name: "return_questions",
       description:
-        'Retourne la liste de questions générées pour le chapitre de spécification.',
+        "Retourne la liste de questions générées pour le chapitre de spécification.",
       input_schema: {
-        type: 'object' as const,
+        type: "object" as const,
         properties: {
           questions: {
-            type: 'array',
+            type: "array",
             items: {
-              type: 'object',
+              type: "object",
               properties: {
-                question: { type: 'string' },
+                question: { type: "string" },
                 category: {
-                  type: 'string',
-                  enum: ['fonctionnel', 'technique', 'utilisateur', 'contrainte'],
+                  type: "string",
+                  enum: [
+                    "fonctionnel",
+                    "technique",
+                    "utilisateur",
+                    "contrainte",
+                  ],
                 },
               },
-              required: ['question', 'category'],
+              required: ["question", "category"],
             },
           },
         },
-        required: ['questions'],
+        required: ["questions"],
       },
     };
 
@@ -615,22 +649,23 @@ export class AiService {
         max_tokens: 1024,
         system: SUGGEST_QUESTIONS_SYSTEM,
         tools: [returnQuestionsTool],
-        tool_choice: { type: 'tool', name: 'return_questions' },
-        messages: [{ role: 'user', content: userMessage }],
+        tool_choice: { type: "tool", name: "return_questions" },
+        messages: [{ role: "user", content: userMessage }],
       });
 
-      if (response.stop_reason === 'max_tokens') {
+      if (response.stop_reason === "max_tokens") {
         this.logger.warn(
           `suggestQuestions response truncated (max_tokens) — model=${this.modelLight}`,
         );
       }
 
       const toolUseBlock = response.content.find(
-        (b: Anthropic.ContentBlock): b is Anthropic.ToolUseBlock => b.type === 'tool_use',
+        (b: Anthropic.ContentBlock): b is Anthropic.ToolUseBlock =>
+          b.type === "tool_use",
       );
 
       if (!toolUseBlock) {
-        this.logger.warn('No tool_use block in suggestQuestions response');
+        this.logger.warn("No tool_use block in suggestQuestions response");
         return { questions: [] };
       }
 
@@ -641,12 +676,17 @@ export class AiService {
       // à affiner par modèle en Phase B si nécessaire.
       if (customerId) {
         const costCts = Math.round(
-          (response.usage.input_tokens * 3 + response.usage.output_tokens * 15) / 10_000,
+          (response.usage.input_tokens * 3 +
+            response.usage.output_tokens * 15) /
+            10_000,
         );
-        const credits = costCtsToCredits(costCts, this.creditsClient.costPerCreditCts);
+        const credits = costCtsToCredits(
+          costCts,
+          this.creditsClient.costPerCreditCts,
+        );
         await this.creditsClient.consumeCredits({
           customerId,
-          operation: 'AI_SPECS_GENERATE',
+          operation: "AI_SPECS_GENERATE",
           credits,
         });
       }
@@ -661,7 +701,7 @@ export class AiService {
   async testPrompt(
     dto: TestPromptDto,
   ): Promise<{ result: string; tokensUsed: number }> {
-    this.logger.debug('Testing prompt without DB persistence');
+    this.logger.debug("Testing prompt without DB persistence");
 
     let userMessage = dto.chapterPrompt;
     if (dto.sampleInput) {
@@ -672,15 +712,16 @@ export class AiService {
       model: this.model,
       max_tokens: 500,
       system: dto.megaPrompt,
-      messages: [{ role: 'user', content: userMessage }],
+      messages: [{ role: "user", content: userMessage }],
     });
 
     const textBlock = response.content.find(
-      (b: Anthropic.ContentBlock): b is Anthropic.TextBlock => b.type === 'text',
+      (b: Anthropic.ContentBlock): b is Anthropic.TextBlock =>
+        b.type === "text",
     );
 
     return {
-      result: textBlock?.text ?? '',
+      result: textBlock?.text ?? "",
       tokensUsed:
         (response.usage?.input_tokens ?? 0) +
         (response.usage?.output_tokens ?? 0),
@@ -700,7 +741,10 @@ export class AiService {
       );
     }
 
-    const result = await this.evaluateChapterInternal(specification.id, dto.chapterWid);
+    const result = await this.evaluateChapterInternal(
+      specification.id,
+      dto.chapterWid,
+    );
 
     // Débit crédits pour l'évaluation explicite (pas pour les évaluations auto post-generate)
     if (customerId) {
@@ -708,7 +752,7 @@ export class AiService {
       // On facture 1 crédit minimum pour couvrir le coût même si estimatedCostCts=0
       await this.creditsClient.consumeCredits({
         customerId,
-        operation: 'AI_SPECS_EVALUATE',
+        operation: "AI_SPECS_EVALUATE",
         credits: 1,
       });
     }
@@ -721,7 +765,7 @@ export class AiService {
       where: { wid: dto.specificationWid },
       include: {
         chapters: {
-          orderBy: { chapterOrder: 'asc' },
+          orderBy: { chapterOrder: "asc" },
         },
       },
     });
@@ -738,7 +782,7 @@ export class AiService {
       where: { id: specification.id },
       include: {
         chapters: {
-          orderBy: { chapterOrder: 'asc' },
+          orderBy: { chapterOrder: "asc" },
         },
       },
     });
@@ -759,10 +803,10 @@ export class AiService {
               include: {
                 subChaptersL1: {
                   include: { subChaptersL2: true },
-                  orderBy: { order: 'asc' },
+                  orderBy: { order: "asc" },
                 },
               },
-              orderBy: { order: 'asc' },
+              orderBy: { order: "asc" },
             },
           },
         },
@@ -779,7 +823,7 @@ export class AiService {
       );
     }
 
-    const content = chapterContent.content ?? '';
+    const content = chapterContent.content ?? "";
 
     // Pre-check par regles : contenu vide ou trop court
     if (!content.trim()) {
@@ -787,8 +831,8 @@ export class AiService {
         score: 0,
         coveredTopics: [],
         missingTopics: [],
-        feedback: 'Le chapitre est vide.',
-        model: 'rule-based',
+        feedback: "Le chapitre est vide.",
+        model: "rule-based",
       });
     }
 
@@ -797,8 +841,8 @@ export class AiService {
         score: 5,
         coveredTopics: [],
         missingTopics: [],
-        feedback: 'Le contenu est trop court pour constituer une analyse.',
-        model: 'rule-based',
+        feedback: "Le contenu est trop court pour constituer une analyse.",
+        model: "rule-based",
       });
     }
 
@@ -814,23 +858,24 @@ export class AiService {
         score,
         coveredTopics: [],
         missingTopics: [],
-        feedback: 'Chapitre dynamique - evaluation basee sur la longueur du contenu.',
-        model: 'rule-based',
+        feedback:
+          "Chapitre dynamique - evaluation basee sur la longueur du contenu.",
+        model: "rule-based",
       });
     }
 
     // Construire la liste des sous-sections attendues
     const subSections = templateChapter.subChaptersL1
       .map((l1) => {
-        const l2Titles = l1.subChaptersL2.map((l2) => l2.title).join(', ');
+        const l2Titles = l1.subChaptersL2.map((l2) => l2.title).join(", ");
         return l2Titles ? `${l1.title} (${l2Titles})` : l1.title;
       })
-      .join('; ');
+      .join("; ");
 
     try {
       const evaluation = await this.callClaudeForEvaluation(
         templateChapter.prompt,
-        subSections || 'Aucun sous-chapitre defini',
+        subSections || "Aucun sous-chapitre defini",
         content,
       );
 
@@ -917,7 +962,7 @@ Criteres de scoring :
     // Tronquer le contenu a 3000 chars pour limiter les couts
     const truncatedContent =
       content.length > 3000
-        ? content.slice(0, 1500) + '\n\n[...]\n\n' + content.slice(-1500)
+        ? content.slice(0, 1500) + "\n\n[...]\n\n" + content.slice(-1500)
         : content;
 
     const userMessage = `Exigences du chapitre :\n${chapterPrompt}\n\nSous-sections attendues :\n${subSections}\n\nContenu a evaluer :\n${truncatedContent}`;
@@ -928,19 +973,20 @@ Criteres de scoring :
       model: this.modelLight,
       max_tokens: 512,
       system: systemPrompt,
-      messages: [{ role: 'user', content: userMessage }],
+      messages: [{ role: "user", content: userMessage }],
     });
 
     const textBlock = response.content.find(
-      (b: Anthropic.ContentBlock): b is Anthropic.TextBlock => b.type === 'text',
+      (b: Anthropic.ContentBlock): b is Anthropic.TextBlock =>
+        b.type === "text",
     );
 
-    const rawText = textBlock?.text ?? '';
+    const rawText = textBlock?.text ?? "";
 
     try {
       const jsonMatch = rawText.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
-        throw new Error('No JSON object found in evaluation response');
+        throw new Error("No JSON object found in evaluation response");
       }
 
       const parsed = JSON.parse(jsonMatch[0]);
@@ -953,7 +999,7 @@ Criteres de scoring :
         missingTopics: Array.isArray(parsed.missingTopics)
           ? parsed.missingTopics
           : [],
-        feedback: parsed.feedback ?? '',
+        feedback: parsed.feedback ?? "",
         model: this.modelLight,
       };
     } catch (error) {
@@ -978,22 +1024,22 @@ Criteres de scoring :
     system: string,
     userMessage: string,
     options?: { enableCache?: boolean; model?: string; returnTokens?: boolean },
-  ): Promise<string | { text: string; inputTokens: number; outputTokens: number }> {
+  ): Promise<
+    string | { text: string; inputTokens: number; outputTokens: number }
+  > {
     const model = options?.model ?? this.model;
     this.logger.debug(
       `Calling Claude model ${model} (cache=${options?.enableCache ?? false}, promptVersion=${PROMPT_VERSION})`,
     );
 
     try {
-      const systemParam: Anthropic.MessageParam['content'] | string =
+      const systemParam: Anthropic.MessageParam["content"] | string =
         options?.enableCache
           ? [
               {
-                type: 'text',
+                type: "text",
                 text: system,
-                cache_control: { type: 'ephemeral' },
-              } as Anthropic.TextBlockParam & {
-                cache_control: { type: 'ephemeral' };
+                cache_control: { type: "ephemeral" },
               },
             ]
           : system;
@@ -1001,20 +1047,22 @@ Criteres de scoring :
       const response = await this.anthropic.messages.create({
         model,
         max_tokens: 8192,
-        system: systemParam as Anthropic.MessageCreateParamsNonStreaming['system'],
-        messages: [{ role: 'user', content: userMessage }],
+        system:
+          systemParam as Anthropic.MessageCreateParamsNonStreaming["system"],
+        messages: [{ role: "user", content: userMessage }],
       });
 
-      if (response.stop_reason === 'max_tokens') {
+      if (response.stop_reason === "max_tokens") {
         this.logger.warn(
           `Claude response truncated (max_tokens reached) — model=${model} promptVersion=${PROMPT_VERSION}`,
         );
       }
 
       const textBlock = response.content.find(
-        (b: Anthropic.ContentBlock): b is Anthropic.TextBlock => b.type === 'text',
+        (b: Anthropic.ContentBlock): b is Anthropic.TextBlock =>
+          b.type === "text",
       );
-      const text = textBlock?.text ?? '';
+      const text = textBlock?.text ?? "";
       if (options?.returnTokens) {
         return {
           text,
@@ -1024,10 +1072,12 @@ Criteres de scoring :
       }
       return text;
     } catch (error) {
-      const status = error instanceof Anthropic.APIError ? error.status : undefined;
-      const msg = error instanceof Anthropic.APIError ? error.message : String(error);
+      const status =
+        error instanceof Anthropic.APIError ? error.status : undefined;
+      const msg =
+        error instanceof Anthropic.APIError ? error.message : String(error);
       this.logger.error(
-        `callClaude error — model=${model} status=${status ?? 'n/a'} message="${msg}"`,
+        `callClaude error — model=${model} status=${status ?? "n/a"} message="${msg}"`,
         error instanceof Error ? error.stack : undefined,
       );
       throw error;

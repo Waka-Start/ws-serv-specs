@@ -1,6 +1,6 @@
-import { ANTI_INJECTION_INSTRUCTION } from './system-instructions.prompt.js';
+import { ANTI_INJECTION_INSTRUCTION } from "./system-instructions.prompt.js";
 
-export const PROMPT_VERSION = '2.1.0';
+export const PROMPT_VERSION = "2.1.0";
 
 export const SUGGEST_QUESTIONS_SYSTEM = `<role>
 Tu es un assistant qui aide des porteurs de projet (clients, décideurs métier) à exprimer leurs besoins pour un cahier des charges fonctionnel.

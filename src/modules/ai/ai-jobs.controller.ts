@@ -7,7 +7,7 @@ import {
   Post,
   Query,
   UseGuards,
-} from '@nestjs/common';
+} from "@nestjs/common";
 import {
   ApiOperation,
   ApiParam,
@@ -15,11 +15,11 @@ import {
   ApiResponse,
   ApiSecurity,
   ApiTags,
-} from '@nestjs/swagger';
-import { ApiKeyGuard } from '../../common/guards/api-key.guard.js';
-import { AiJobsService } from './ai-jobs.service.js';
-import { AiJobResponseDto, ListAiJobsQueryDto } from './dto/ai-job.dto.js';
-import { WakaSpecAiJob } from '@prisma/client';
+} from "@nestjs/swagger";
+import { ApiKeyGuard } from "../../common/guards/api-key.guard.js";
+import { AiJobsService } from "./ai-jobs.service.js";
+import { AiJobResponseDto, ListAiJobsQueryDto } from "./dto/ai-job.dto.js";
+import { WakaSpecAiJob } from "@prisma/client";
 
 function toResponseDto(job: WakaSpecAiJob): AiJobResponseDto {
   return {
@@ -33,23 +33,31 @@ function toResponseDto(job: WakaSpecAiJob): AiJobResponseDto {
   };
 }
 
-@Controller('ai/jobs')
-@ApiTags('ai-jobs')
+@Controller("ai/jobs")
+@ApiTags("ai-jobs")
 @UseGuards(ApiKeyGuard)
-@ApiSecurity('api-key')
+@ApiSecurity("api-key")
 export class AiJobsController {
   constructor(private readonly aiJobsService: AiJobsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Lister les jobs IA filtrés par specification et statut' })
-  @ApiQuery({ name: 'specificationWid', required: true, description: 'WID de la specification' })
+  @ApiOperation({
+    summary: "Lister les jobs IA filtrés par specification et statut",
+  })
   @ApiQuery({
-    name: 'status',
+    name: "specificationWid",
+    required: true,
+    description: "WID de la specification",
+  })
+  @ApiQuery({
+    name: "status",
     required: false,
-    description: 'Filtrer par statuts (comma-separated ex: PENDING,RUNNING)',
+    description: "Filtrer par statuts (comma-separated ex: PENDING,RUNNING)",
   })
   @ApiResponse({ status: 200, type: [AiJobResponseDto] })
-  async listJobs(@Query() query: ListAiJobsQueryDto): Promise<AiJobResponseDto[]> {
+  async listJobs(
+    @Query() query: ListAiJobsQueryDto,
+  ): Promise<AiJobResponseDto[]> {
     const jobs = await this.aiJobsService.listJobs(
       query.specificationWid,
       query.status,
@@ -57,24 +65,27 @@ export class AiJobsController {
     return jobs.map(toResponseDto);
   }
 
-  @Get(':jobWid')
+  @Get(":jobWid")
   @ApiOperation({ summary: "Récupérer l'état courant d'un job IA" })
-  @ApiParam({ name: 'jobWid', description: 'WID du job' })
+  @ApiParam({ name: "jobWid", description: "WID du job" })
   @ApiResponse({ status: 200, type: AiJobResponseDto })
-  @ApiResponse({ status: 404, description: 'Job non trouvé' })
-  async getJob(@Param('jobWid') jobWid: string): Promise<AiJobResponseDto> {
+  @ApiResponse({ status: 404, description: "Job non trouvé" })
+  async getJob(@Param("jobWid") jobWid: string): Promise<AiJobResponseDto> {
     const job = await this.aiJobsService.getJob(jobWid);
     return toResponseDto(job);
   }
 
-  @Post(':jobWid/cancel')
+  @Post(":jobWid/cancel")
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Annuler un job IA (si PENDING ou RUNNING)' })
-  @ApiParam({ name: 'jobWid', description: 'WID du job' })
+  @ApiOperation({ summary: "Annuler un job IA (si PENDING ou RUNNING)" })
+  @ApiParam({ name: "jobWid", description: "WID du job" })
   @ApiResponse({ status: 200, type: AiJobResponseDto })
-  @ApiResponse({ status: 404, description: 'Job non trouvé' })
-  @ApiResponse({ status: 409, description: 'Job déjà terminé — ne peut pas être annulé' })
-  async cancelJob(@Param('jobWid') jobWid: string): Promise<AiJobResponseDto> {
+  @ApiResponse({ status: 404, description: "Job non trouvé" })
+  @ApiResponse({
+    status: 409,
+    description: "Job déjà terminé — ne peut pas être annulé",
+  })
+  async cancelJob(@Param("jobWid") jobWid: string): Promise<AiJobResponseDto> {
     const job = await this.aiJobsService.cancelJob(jobWid);
     return toResponseDto(job);
   }
