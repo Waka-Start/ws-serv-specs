@@ -101,5 +101,22 @@
     "brace-expansion": ">=2.0.3",
     "flatted": ">=3.3.3",
     "ajv@>=7": ">=8.18.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@nestjs/core",
+      "@parcel/watcher",
+      "@prisma/client",
+      "@prisma/engines",
+      "@scarf/scarf",
+      "@swc/core",
+      "bcrypt",
+      "esbuild",
+      "lmdb",
+      "msgpackr-extract",
+      "prisma",
+      "sharp",
+      "unrs-resolver"
+    ]
   }
 }
