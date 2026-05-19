@@ -63,22 +63,6 @@
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.59.2"
   },
-  "pnpm": {
-    "overrides": {
-      "minimatch": ">=10.0.0",
-      "@isaacs/brace-expansion": ">=5.0.1",
-      "webpack": ">=5.104.0",
-      "serialize-javascript": ">=7.0.5",
-      "diff": ">=4.0.4",
-      "lodash": ">=4.17.23",
-      "path-to-regexp": ">=8.4.0",
-      "picomatch": ">=4.0.2",
-      "handlebars": ">=4.7.9",
-      "brace-expansion": ">=2.0.3",
-      "flatted": ">=3.3.3",
-      "ajv@>=7": ">=8.18.0"
-    }
-  },
   "jest": {
     "moduleFileExtensions": [
       "js",
@@ -103,5 +87,19 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
+  },
+  "overrides": {
+    "minimatch": ">=10.0.0",
+    "@isaacs/brace-expansion": ">=5.0.1",
+    "webpack": ">=5.104.0",
+    "serialize-javascript": ">=7.0.5",
+    "diff": ">=4.0.4",
+    "lodash": ">=4.17.23",
+    "path-to-regexp": ">=8.4.0",
+    "picomatch": ">=4.0.2",
+    "handlebars": ">=4.7.9",
+    "brace-expansion": ">=2.0.3",
+    "flatted": ">=3.3.3",
+    "ajv@>=7": ">=8.18.0"
   }
 }
