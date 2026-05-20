@@ -1,20 +1,20 @@
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module.js';
-import { ValidationPipe, Logger } from '@nestjs/common';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { ConfigService } from '@nestjs/config';
-import helmet from 'helmet';
-import { json, urlencoded } from 'express';
+import { NestFactory } from "@nestjs/core";
+import { AppModule } from "./app.module.js";
+import { ValidationPipe, Logger } from "@nestjs/common";
+import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import { ConfigService } from "@nestjs/config";
+import helmet from "helmet";
+import { json, urlencoded } from "express";
 
 async function bootstrap() {
-  const logger = new Logger('Bootstrap');
+  const logger = new Logger("Bootstrap");
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
 
-  app.setGlobalPrefix('api');
+  app.setGlobalPrefix("api");
 
-  app.use(json({ limit: '10mb' }));
-  app.use(urlencoded({ extended: true, limit: '10mb' }));
+  app.use(json({ limit: "10mb" }));
+  app.use(urlencoded({ extended: true, limit: "10mb" }));
 
   app.use(
     helmet({
@@ -29,24 +29,20 @@ async function bootstrap() {
   );
 
   const allowedOrigins =
-    configService
-      .get<string>('ALLOWED_ORIGINS')
-      ?.split(',')
-      .filter(Boolean) || [];
-  const corsMethods =
-    configService
-      .get<string>('CORS_METHODS', 'GET,POST,PUT,PATCH,DELETE')
-      ?.split(',')
-      .map((m) => m.trim()) || ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
-  const corsHeaders =
-    configService
-      .get<string>('CORS_HEADERS', 'Content-Type,Authorization')
-      ?.split(',')
-      .map((h) => h.trim()) || ['Content-Type', 'Authorization'];
+    configService.get<string>("ALLOWED_ORIGINS")?.split(",").filter(Boolean) ||
+    [];
+  const corsMethods = configService
+    .get<string>("CORS_METHODS", "GET,POST,PUT,PATCH,DELETE")
+    ?.split(",")
+    .map((m) => m.trim()) || ["GET", "POST", "PUT", "PATCH", "DELETE"];
+  const corsHeaders = configService
+    .get<string>("CORS_HEADERS", "Content-Type,Authorization")
+    ?.split(",")
+    .map((h) => h.trim()) || ["Content-Type", "Authorization"];
 
   app.enableCors({
     origin: allowedOrigins.length > 0 ? allowedOrigins : false,
-    credentials: configService.get<boolean>('CORS_CREDENTIALS', true),
+    credentials: configService.get<boolean>("CORS_CREDENTIALS", true),
     methods: corsMethods,
     allowedHeaders: corsHeaders,
   });
@@ -59,31 +55,31 @@ async function bootstrap() {
     }),
   );
 
-  const isProduction = process.env.NODE_ENV === 'production';
+  const isProduction = process.env.NODE_ENV === "production";
   if (!isProduction) {
     const config = new DocumentBuilder()
-      .setTitle('WS-SERV-SPECS')
+      .setTitle("WS-SERV-SPECS")
       .setDescription(
-        'Service de gestion des specifications WakaSpecs - modeles, editeur IA, versioning',
+        "Service de gestion des specifications WakaSpecs - modeles, editeur IA, versioning",
       )
-      .setVersion('0.1.0')
-      .addTag('health', 'Health check endpoints')
-      .addTag('templates', 'CRUD modeles de specification')
-      .addTag('specifications', 'Gestion des specifications (instances editeur)')
-      .addTag('ai', 'Redaction assistee par IA Claude')
-      .addApiKey(
-        { type: 'apiKey', name: 'x-api-key', in: 'header' },
-        'api-key',
+      .setVersion("0.1.0")
+      .addTag("health", "Health check endpoints")
+      .addTag("templates", "CRUD modeles de specification")
+      .addTag(
+        "specifications",
+        "Gestion des specifications (instances editeur)",
       )
+      .addTag("ai", "Redaction assistee par IA Claude")
+      .addApiKey({ type: "apiKey", name: "x-api-key", in: "header" }, "api-key")
       .build();
 
     const document = SwaggerModule.createDocument(app, config);
-    SwaggerModule.setup('api/docs', app, document, {
+    SwaggerModule.setup("api/docs", app, document, {
       swaggerOptions: { persistAuthorization: true },
     });
   }
 
-  const port = configService.get<number>('PORT', 3014);
+  const port = configService.get<number>("PORT", 3014);
   await app.listen(port);
 
   logger.log(`ws-serv-specs v0.1.0 - listening on port ${port}`);

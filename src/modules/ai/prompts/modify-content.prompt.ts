@@ -1,6 +1,6 @@
-import { ANTI_INJECTION_INSTRUCTION } from './system-instructions.prompt.js';
+import { ANTI_INJECTION_INSTRUCTION } from "./system-instructions.prompt.js";
 
-export const PROMPT_VERSION = '2026.04.22.1';
+export const PROMPT_VERSION = "2026.04.22.1";
 
 export const MODIFY_CONTENT_SYSTEM = `<role>
 Tu es un assistant expert en rédaction de spécifications fonctionnelles.

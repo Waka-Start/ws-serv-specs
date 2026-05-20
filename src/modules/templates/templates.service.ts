@@ -1,24 +1,24 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service.js';
-import { CreateTemplateDto } from './dto/create-template.dto.js';
-import { UpdateTemplateDto } from './dto/update-template.dto.js';
-import { CreateChapterDto } from './dto/create-chapter.dto.js';
-import { UpdateChapterDto } from './dto/update-chapter.dto.js';
-import { ReorderChaptersDto } from './dto/reorder-chapters.dto.js';
-import { CreateSubChapterL1Dto } from './dto/create-sub-chapter-l1.dto.js';
-import { UpdateSubChapterL1Dto } from './dto/update-sub-chapter-l1.dto.js';
-import { CreateSubChapterL2Dto } from './dto/create-sub-chapter-l2.dto.js';
-import { UpdateSubChapterL2Dto } from './dto/update-sub-chapter-l2.dto.js';
+import { Injectable, NotFoundException } from "@nestjs/common";
+import { PrismaService } from "../../prisma/prisma.service.js";
+import { CreateTemplateDto } from "./dto/create-template.dto.js";
+import { UpdateTemplateDto } from "./dto/update-template.dto.js";
+import { CreateChapterDto } from "./dto/create-chapter.dto.js";
+import { UpdateChapterDto } from "./dto/update-chapter.dto.js";
+import { ReorderChaptersDto } from "./dto/reorder-chapters.dto.js";
+import { CreateSubChapterL1Dto } from "./dto/create-sub-chapter-l1.dto.js";
+import { UpdateSubChapterL1Dto } from "./dto/update-sub-chapter-l1.dto.js";
+import { CreateSubChapterL2Dto } from "./dto/create-sub-chapter-l2.dto.js";
+import { UpdateSubChapterL2Dto } from "./dto/update-sub-chapter-l2.dto.js";
 
 const FULL_HIERARCHY_INCLUDE = {
   chapters: {
-    orderBy: { order: 'asc' as const },
+    orderBy: { order: "asc" as const },
     include: {
       subChaptersL1: {
-        orderBy: { order: 'asc' as const },
+        orderBy: { order: "asc" as const },
         include: {
           subChaptersL2: {
-            orderBy: { order: 'asc' as const },
+            orderBy: { order: "asc" as const },
           },
         },
       },
@@ -54,10 +54,10 @@ export class TemplatesService {
     return this.prisma.wakaSpecTemplate.create({
       data: {
         title: dto.title,
-        userDescription: dto.userDescription ?? '',
-        docDescription: dto.docDescription ?? '',
-        megaPrompt: dto.megaPrompt ?? '',
-        createdBy: dto.createdBy ?? 'system',
+        userDescription: dto.userDescription ?? "",
+        docDescription: dto.docDescription ?? "",
+        megaPrompt: dto.megaPrompt ?? "",
+        createdBy: dto.createdBy ?? "system",
       },
       include: FULL_HIERARCHY_INCLUDE,
     });
@@ -106,16 +106,20 @@ export class TemplatesService {
       },
       include: {
         subChaptersL1: {
-          orderBy: { order: 'asc' },
+          orderBy: { order: "asc" },
           include: {
-            subChaptersL2: { orderBy: { order: 'asc' } },
+            subChaptersL2: { orderBy: { order: "asc" } },
           },
         },
       },
     });
   }
 
-  async updateChapter(templateWid: string, chapterWid: string, dto: UpdateChapterDto) {
+  async updateChapter(
+    templateWid: string,
+    chapterWid: string,
+    dto: UpdateChapterDto,
+  ) {
     const template = await this.findOne(templateWid);
 
     const chapter = await this.prisma.wakaSpecTemplateChapter.findUnique({
@@ -133,9 +137,9 @@ export class TemplatesService {
       data: dto,
       include: {
         subChaptersL1: {
-          orderBy: { order: 'asc' },
+          orderBy: { order: "asc" },
           include: {
-            subChaptersL2: { orderBy: { order: 'asc' } },
+            subChaptersL2: { orderBy: { order: "asc" } },
           },
         },
       },
@@ -201,7 +205,7 @@ export class TemplatesService {
         order: nextOrder,
       },
       include: {
-        subChaptersL2: { orderBy: { order: 'asc' } },
+        subChaptersL2: { orderBy: { order: "asc" } },
       },
     });
   }
@@ -219,7 +223,7 @@ export class TemplatesService {
       where: { wid: scWid },
       data: dto,
       include: {
-        subChaptersL2: { orderBy: { order: 'asc' } },
+        subChaptersL2: { orderBy: { order: "asc" } },
       },
     });
   }
@@ -246,7 +250,9 @@ export class TemplatesService {
     });
 
     if (!scL1) {
-      throw new NotFoundException(`SubChapterL1 with wid "${scL1Wid}" not found`);
+      throw new NotFoundException(
+        `SubChapterL1 with wid "${scL1Wid}" not found`,
+      );
     }
 
     const maxOrder = await this.prisma.wakaSpecTemplateSubChapterL2.aggregate({
@@ -271,7 +277,9 @@ export class TemplatesService {
     });
 
     if (!existing) {
-      throw new NotFoundException(`SubChapterL2 with wid "${sc2Wid}" not found`);
+      throw new NotFoundException(
+        `SubChapterL2 with wid "${sc2Wid}" not found`,
+      );
     }
 
     return this.prisma.wakaSpecTemplateSubChapterL2.update({
@@ -286,7 +294,9 @@ export class TemplatesService {
     });
 
     if (!existing) {
-      throw new NotFoundException(`SubChapterL2 with wid "${sc2Wid}" not found`);
+      throw new NotFoundException(
+        `SubChapterL2 with wid "${sc2Wid}" not found`,
+      );
     }
 
     return this.prisma.wakaSpecTemplateSubChapterL2.delete({

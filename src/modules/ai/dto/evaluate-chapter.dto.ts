@@ -1,18 +1,18 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsString } from 'class-validator';
+import { ApiProperty } from "@nestjs/swagger";
+import { IsString } from "class-validator";
 
 export class EvaluateChapterDto {
-  @ApiProperty({ description: 'WID de la specification' })
+  @ApiProperty({ description: "WID de la specification" })
   @IsString()
   specificationWid: string;
 
-  @ApiProperty({ description: 'WID du chapitre a evaluer' })
+  @ApiProperty({ description: "WID du chapitre a evaluer" })
   @IsString()
   chapterWid: string;
 }
 
 export class EvaluateAllChaptersDto {
-  @ApiProperty({ description: 'WID de la specification' })
+  @ApiProperty({ description: "WID de la specification" })
   @IsString()
   specificationWid: string;
 }

@@ -1,7 +1,7 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
-import { AiJobsService } from './ai-jobs.service.js';
+import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import { InjectQueue } from "@nestjs/bullmq";
+import { Queue } from "bullmq";
+import { AiJobsService } from "./ai-jobs.service.js";
 
 // Cron de nettoyage des jobs orphelins (stale)
 // Implémenté comme un BullMQ repeatable job (toutes les 5 minutes)
@@ -10,11 +10,11 @@ import { AiJobsService } from './ai-jobs.service.js';
 @Injectable()
 export class StaleJobsCron implements OnModuleInit {
   private readonly logger = new Logger(StaleJobsCron.name);
-  private static readonly CRON_JOB_NAME = 'cleanup-stale-jobs';
+  private static readonly CRON_JOB_NAME = "cleanup-stale-jobs";
   private static readonly REPEAT_EVERY_MS = 5 * 60 * 1000; // 5 minutes
 
   constructor(
-    @InjectQueue('ai-jobs') private readonly aiJobsQueue: Queue,
+    @InjectQueue("ai-jobs") private readonly aiJobsQueue: Queue,
     private readonly aiJobsService: AiJobsService,
   ) {}
 
@@ -38,7 +38,7 @@ export class StaleJobsCron implements OnModuleInit {
 
   // Appelé par AiJobsProcessor quand il reçoit un job de nom 'cleanup-stale-jobs'
   async run(): Promise<void> {
-    this.logger.debug('Running stale jobs cleanup...');
+    this.logger.debug("Running stale jobs cleanup...");
     await this.aiJobsService.cleanStaleJobs();
   }
 }

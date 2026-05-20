@@ -26,6 +26,7 @@ enum AIAction {
 
 enum EnumAiJobType {
   VENTILATE
+  VENTILATE_SUBCHAPTERS
   GENERATE_CHAPTER
   MODIFY
 }
@@ -129,9 +130,10 @@ model WakaSpecification {
   createdBy      String              @map("created_by")
   updatedBy      String?             @map("updated_by")
 
-  template WakaSpecTemplate        @relation(fields: [templateId], references: [id])
-  chapters WakaSpecChapterContent[]
-  aiHistory WakaSpecAIHistory[]
+  template     WakaSpecTemplate          @relation(fields: [templateId], references: [id])
+  chapters     WakaSpecChapterContent[]
+  subChapters  WakaSpecSubChapterContent[]
+  aiHistory    WakaSpecAIHistory[]
 
   @@map("waka_specification")
 }
@@ -145,6 +147,7 @@ model WakaSpecChapterContent {
   chapterOrder      Int       @map("chapter_order")
   content           String?   @db.Text
   progress          Int       @default(0)
+  isFilled          Boolean   @default(false) @map("is_filled")
   isAutoSaved       Boolean   @default(false) @map("is_auto_saved")
   evaluationDetails Json?     @map("evaluation_details") @db.JsonB
   evaluatedAt       DateTime? @map("evaluated_at") @db.Timestamptz
@@ -152,8 +155,31 @@ model WakaSpecChapterContent {
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
   specification WakaSpecification @relation(fields: [specificationId], references: [id], onDelete: Cascade)
+  subChapters   WakaSpecSubChapterContent[]
 
   @@map("waka_spec_chapter_content")
+}
+
+model WakaSpecSubChapterContent {
+  id                Int       @id @default(autoincrement())
+  wid               String    @unique @default(cuid())
+  specificationId   Int       @map("specification_id")
+  chapterContentId  Int       @map("chapter_content_id")
+  subChapterL1Wid   String    @map("sub_chapter_l1_wid")
+  subChapterL2Wid   String    @default("") @map("sub_chapter_l2_wid")
+  title             String
+  content           String?   @db.Text
+  progress          Int       @default(0)
+  order             Int
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  specification  WakaSpecification      @relation(fields: [specificationId], references: [id], onDelete: Cascade)
+  chapterContent WakaSpecChapterContent @relation(fields: [chapterContentId], references: [id], onDelete: Cascade)
+
+  @@unique([chapterContentId, subChapterL1Wid, subChapterL2Wid])
+  @@index([chapterContentId, order])
+  @@map("waka_spec_sub_chapter_content")
 }
 
 model WakaSpecAiJob {

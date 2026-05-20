@@ -3,11 +3,11 @@ import {
   OnModuleInit,
   OnModuleDestroy,
   Logger,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { PrismaClient } from '@prisma/client';
-import { PrismaPg } from '@prisma/adapter-pg';
-import pg from 'pg';
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import pg from "pg";
 
 @Injectable()
 export class PrismaService
@@ -18,16 +18,16 @@ export class PrismaService
   private pool: pg.Pool;
 
   constructor(private readonly configService: ConfigService) {
-    const connectionString = configService.get<string>('DATABASE_URL');
+    const connectionString = configService.get<string>("DATABASE_URL");
     const pool = new pg.Pool({
       connectionString,
-      max: configService.get<number>('DB_POOL_MAX', 20),
+      max: configService.get<number>("DB_POOL_MAX", 20),
       idleTimeoutMillis: configService.get<number>(
-        'DB_POOL_IDLE_TIMEOUT',
+        "DB_POOL_IDLE_TIMEOUT",
         30000,
       ),
       connectionTimeoutMillis: configService.get<number>(
-        'DB_POOL_CONNECTION_TIMEOUT',
+        "DB_POOL_CONNECTION_TIMEOUT",
         2000,
       ),
     });
@@ -40,9 +40,9 @@ export class PrismaService
   async onModuleInit() {
     try {
       await this.$connect();
-      this.logger.log('PostgreSQL connection established');
+      this.logger.log("PostgreSQL connection established");
     } catch (error) {
-      this.logger.error('Failed to connect to PostgreSQL', error);
+      this.logger.error("Failed to connect to PostgreSQL", error);
       throw error;
     }
   }
@@ -50,12 +50,12 @@ export class PrismaService
   async onModuleDestroy() {
     await this.$disconnect();
     await this.pool.end();
-    this.logger.log('PostgreSQL connection closed');
+    this.logger.log("PostgreSQL connection closed");
   }
 
   async testConnection(): Promise<boolean> {
     try {
-      await this.$queryRawUnsafe('SELECT 1');
+      await this.$queryRawUnsafe("SELECT 1");
       return true;
     } catch {
       return false;

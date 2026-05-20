@@ -1,35 +1,35 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import { IsString, IsNotEmpty, IsOptional } from "class-validator";
 
 export class CreateSpecificationDto {
-  @ApiProperty({ description: 'WID du template a utiliser' })
+  @ApiProperty({ description: "WID du template a utiliser" })
   @IsString()
   @IsNotEmpty()
   templateWid: string;
 
-  @ApiPropertyOptional({ description: 'Identifiant du projet WakaProject' })
+  @ApiPropertyOptional({ description: "Identifiant du projet WakaProject" })
   @IsString()
   @IsOptional()
   projectId?: string;
 
-  @ApiPropertyOptional({ description: 'Identifiant de l etape du projet' })
+  @ApiPropertyOptional({ description: "Identifiant de l etape du projet" })
   @IsString()
   @IsOptional()
   stepId?: string;
 
-  @ApiProperty({ description: 'Nom de la specification' })
+  @ApiProperty({ description: "Nom de la specification" })
   @IsString()
   @IsNotEmpty()
   name: string;
 
   @ApiPropertyOptional({
-    description: 'Texte initial pour la ventilation IA',
+    description: "Texte initial pour la ventilation IA",
   })
   @IsString()
   @IsOptional()
   initialText?: string;
 
-  @ApiProperty({ description: 'Identifiant du createur' })
+  @ApiProperty({ description: "Identifiant du createur" })
   @IsString()
   @IsNotEmpty()
   createdBy: string;

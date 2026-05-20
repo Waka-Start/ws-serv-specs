@@ -3,9 +3,9 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-} from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service.js';
-import { EnumAiJobStatus, EnumAiJobType, WakaSpecAiJob } from '@prisma/client';
+} from "@nestjs/common";
+import { PrismaService } from "../../prisma/prisma.service.js";
+import { EnumAiJobStatus, EnumAiJobType, WakaSpecAiJob } from "@prisma/client";
 
 @Injectable()
 export class AiJobsService {
@@ -60,7 +60,7 @@ export class AiJobsService {
     statusFilter?: string,
   ): Promise<WakaSpecAiJob[]> {
     const statuses = statusFilter
-      ? (statusFilter.split(',').map((s) => s.trim()) as EnumAiJobStatus[])
+      ? (statusFilter.split(",").map((s) => s.trim()) as EnumAiJobStatus[])
       : undefined;
 
     return this.prisma.wakaSpecAiJob.findMany({
@@ -68,7 +68,7 @@ export class AiJobsService {
         specificationWid,
         ...(statuses ? { status: { in: statuses } } : {}),
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
     });
   }
 
@@ -95,8 +95,8 @@ export class AiJobsService {
       },
       data: {
         status: EnumAiJobStatus.FAILED,
-        errorCode: 'STALE_JOB',
-        errorMessage: 'Job orphelin (pod redémarré ?)',
+        errorCode: "STALE_JOB",
+        errorMessage: "Job orphelin (pod redémarré ?)",
         finishedAt: new Date(),
       },
     });

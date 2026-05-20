@@ -1,12 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service.js';
-import { TemplatesService } from '../templates/templates.service.js';
-import { CreateSpecificationDto } from './dto/create-specification.dto.js';
-import { UpdateSpecificationDto } from './dto/update-specification.dto.js';
-import { UpdateChapterContentDto } from './dto/update-chapter-content.dto.js';
-import { QuerySpecificationsDto } from './dto/query-specifications.dto.js';
-import { CreateDynamicSubChapterDto } from './dto/create-dynamic-subchapter.dto.js';
-import type { Prisma } from '@prisma/client';
+import { Injectable, NotFoundException } from "@nestjs/common";
+import { PrismaService } from "../../prisma/prisma.service.js";
+import { TemplatesService } from "../templates/templates.service.js";
+import { CreateSpecificationDto } from "./dto/create-specification.dto.js";
+import { UpdateSpecificationDto } from "./dto/update-specification.dto.js";
+import { UpdateChapterContentDto } from "./dto/update-chapter-content.dto.js";
+import { QuerySpecificationsDto } from "./dto/query-specifications.dto.js";
+import { CreateDynamicSubChapterDto } from "./dto/create-dynamic-subchapter.dto.js";
+import type { Prisma } from "@prisma/client";
 
 @Injectable()
 export class SpecificationsService {
@@ -29,10 +29,15 @@ export class SpecificationsService {
       where,
       include: {
         chapters: {
-          orderBy: { chapterOrder: 'asc' },
+          orderBy: { chapterOrder: "asc" },
+          include: {
+            subChapters: {
+              orderBy: { order: "asc" },
+            },
+          },
         },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
     });
   }
 
@@ -41,7 +46,12 @@ export class SpecificationsService {
       where: { wid },
       include: {
         chapters: {
-          orderBy: { chapterOrder: 'asc' },
+          orderBy: { chapterOrder: "asc" },
+          include: {
+            subChapters: {
+              orderBy: { order: "asc" },
+            },
+          },
         },
       },
     });
@@ -85,7 +95,10 @@ export class SpecificationsService {
         where: { id: specification.id },
         include: {
           chapters: {
-            orderBy: { chapterOrder: 'asc' },
+            orderBy: { chapterOrder: "asc" },
+            include: {
+              subChapters: { orderBy: { order: "asc" } },
+            },
           },
         },
       });
@@ -104,7 +117,10 @@ export class SpecificationsService {
       },
       include: {
         chapters: {
-          orderBy: { chapterOrder: 'asc' },
+          orderBy: { chapterOrder: "asc" },
+          include: {
+            subChapters: { orderBy: { order: "asc" } },
+          },
         },
       },
     });
@@ -177,15 +193,12 @@ export class SpecificationsService {
     return this.recalculateGlobalProgress(specification.id);
   }
 
-  async addDynamicSubChapter(
-    specWid: string,
-    dto: CreateDynamicSubChapterDto,
-  ) {
+  async addDynamicSubChapter(specWid: string, dto: CreateDynamicSubChapterDto) {
     const specification = await this.findOne(specWid);
 
     const lastChapter = await this.prisma.wakaSpecChapterContent.findFirst({
       where: { specificationId: specification.id },
-      orderBy: { chapterOrder: 'desc' },
+      orderBy: { chapterOrder: "desc" },
     });
 
     const nextOrder = lastChapter ? lastChapter.chapterOrder + 1 : 1;
@@ -200,10 +213,7 @@ export class SpecificationsService {
     });
   }
 
-  async removeDynamicSubChapter(
-    specWid: string,
-    chapterContentWid: string,
-  ) {
+  async removeDynamicSubChapter(specWid: string, chapterContentWid: string) {
     const specification = await this.findOne(specWid);
 
     const chapter = await this.prisma.wakaSpecChapterContent.findFirst({
@@ -232,7 +242,7 @@ export class SpecificationsService {
       include: {
         template: true,
         chapters: {
-          orderBy: { chapterOrder: 'asc' },
+          orderBy: { chapterOrder: "asc" },
         },
       },
     });
@@ -246,20 +256,20 @@ export class SpecificationsService {
     const lines: string[] = [];
 
     lines.push(`# ${specification.template.title}`);
-    lines.push('');
+    lines.push("");
     lines.push(specification.template.docDescription);
-    lines.push('');
+    lines.push("");
 
     for (const chapter of specification.chapters) {
       lines.push(`## ${chapter.chapterTitle}`);
-      lines.push('');
+      lines.push("");
       if (chapter.content) {
         lines.push(chapter.content);
-        lines.push('');
+        lines.push("");
       }
     }
 
-    return lines.join('\n');
+    return lines.join("\n");
   }
 
   async saveVersion(specWid: string) {
@@ -299,7 +309,10 @@ export class SpecificationsService {
       data: { globalProgress },
       include: {
         chapters: {
-          orderBy: { chapterOrder: 'asc' },
+          orderBy: { chapterOrder: "asc" },
+          include: {
+            subChapters: { orderBy: { order: "asc" } },
+          },
         },
       },
     });
