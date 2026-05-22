@@ -100,9 +100,17 @@
     "handlebars": ">=4.7.9",
     "brace-expansion": ">=2.0.3",
     "flatted": ">=3.3.3",
-    "ajv@>=7": ">=8.18.0"
+    "ajv@>=7": ">=8.18.0",
+    "fast-uri": ">=3.1.2",
+    "hono": ">=4.12.18 <5.0.0",
+    "@hono/node-server": ">=1.19.13 <2.0.0"
   },
   "pnpm": {
+    "overrides": {
+      "fast-uri": ">=3.1.2",
+      "hono": ">=4.12.18 <5.0.0",
+      "@hono/node-server": ">=1.19.13 <2.0.0"
+    },
     "onlyBuiltDependencies": [
       "@nestjs/core",
       "@parcel/watcher",
