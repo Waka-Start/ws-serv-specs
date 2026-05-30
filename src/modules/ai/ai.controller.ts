@@ -9,6 +9,7 @@ import {
   Post,
   UseGuards,
 } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import {
   ApiOperation,
   ApiParam,
@@ -38,6 +39,7 @@ import {
 @ApiTags("ai")
 @UseGuards(ApiKeyGuard)
 @ApiSecurity("api-key")
+@Throttle({ short: { limit: 10, ttl: 60000 } })
 export class AiController {
   constructor(private readonly aiService: AiService) {}
 

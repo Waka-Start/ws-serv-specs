@@ -19,8 +19,14 @@ import { AiModule } from "./modules/ai/ai.module.js";
       inject: [ConfigService],
       useFactory: (config: ConfigService) => [
         {
+          name: "default",
           ttl: config.get<number>("THROTTLE_TTL", 60000),
           limit: config.get<number>("THROTTLE_LIMIT", 500),
+        },
+        {
+          name: "short",
+          ttl: 60000,
+          limit: 10,
         },
       ],
     }),

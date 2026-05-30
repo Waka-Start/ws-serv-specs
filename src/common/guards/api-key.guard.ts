@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "crypto";
 import {
   CanActivate,
   ExecutionContext,
@@ -20,7 +21,19 @@ export class ApiKeyGuard implements CanActivate {
       throw new UnauthorizedException("API_KEY is not configured on server");
     }
 
-    if (!apiKey || apiKey !== expectedKey) {
+    if (!apiKey) {
+      throw new UnauthorizedException("Invalid or missing API key");
+    }
+
+    const apiKeyBuf = Buffer.from(
+      typeof apiKey === "string" ? apiKey : apiKey[0],
+    );
+    const expectedBuf = Buffer.from(expectedKey);
+
+    if (
+      apiKeyBuf.length !== expectedBuf.length ||
+      !timingSafeEqual(apiKeyBuf, expectedBuf)
+    ) {
       throw new UnauthorizedException("Invalid or missing API key");
     }
 
