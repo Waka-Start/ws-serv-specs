@@ -11,6 +11,14 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
 
+  const apiKey = configService.get<string>("API_KEY");
+  if (!apiKey || apiKey.length === 0) {
+    logger.error(
+      "FATAL: API_KEY env variable is missing or empty — refusing to start",
+    );
+    process.exit(1);
+  }
+
   app.setGlobalPrefix("api");
 
   app.use(json({ limit: "10mb" }));

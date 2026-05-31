@@ -17,7 +17,7 @@ export class ApiKeyGuard implements CanActivate {
     const apiKey = request.headers["x-api-key"];
     const expectedKey = this.configService.get<string>("API_KEY");
 
-    if (!expectedKey) {
+    if (!expectedKey || expectedKey.length === 0) {
       throw new UnauthorizedException("API_KEY is not configured on server");
     }
 
