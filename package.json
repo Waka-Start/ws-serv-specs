@@ -61,7 +61,7 @@
     "ts-loader": "^9.5.4",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.2",
-    "typescript-eslint": "^8.59.2"
+    "typescript-eslint": "^8.60.1"
   },
   "jest": {
     "moduleFileExtensions": [
