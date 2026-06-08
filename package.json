@@ -26,6 +26,11 @@
     "@nestjs/schedule": "^6.0.0",
     "@nestjs/swagger": "^11.2.6",
     "@nestjs/throttler": "^6.5.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.76.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.218.0",
+    "@opentelemetry/resources": "^2.7.1",
+    "@opentelemetry/sdk-node": "^0.218.0",
+    "@opentelemetry/semantic-conventions": "^1.41.1",
     "@prisma/adapter-pg": "^7.6.0",
     "@prisma/client": "^7.6.0",
     "bullmq": "^5.71.1",
@@ -100,9 +105,19 @@
     "handlebars": ">=4.7.9",
     "brace-expansion": ">=2.0.3",
     "flatted": ">=3.3.3",
-    "ajv@>=7": ">=8.18.0"
+    "ajv@>=7": ">=8.18.0",
+    "fast-uri": ">=3.1.2",
+    "hono": ">=4.12.18 <5.0.0",
+    "@hono/node-server": ">=1.19.13 <2.0.0"
   },
   "pnpm": {
+    "overrides": {
+      "fast-uri": ">=3.1.2",
+      "hono": ">=4.12.18 <5.0.0",
+      "@hono/node-server": ">=1.19.13 <2.0.0",
+      "path-to-regexp": ">=8.4.0",
+      "lodash": ">=4.18.0"
+    },
     "onlyBuiltDependencies": [
       "@nestjs/core",
       "@parcel/watcher",

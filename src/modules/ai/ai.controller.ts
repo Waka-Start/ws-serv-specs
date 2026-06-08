@@ -9,6 +9,7 @@ import {
   Post,
   UseGuards,
 } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import {
   ApiOperation,
   ApiParam,
@@ -42,6 +43,7 @@ export class AiController {
   constructor(private readonly aiService: AiService) {}
 
   @Post("ventilate")
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({
     summary:
@@ -63,6 +65,7 @@ export class AiController {
   }
 
   @Post("generate")
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
   @ApiOperation({
     summary: "Generer ou enrichir le contenu d un chapitre avec l IA",
   })
@@ -75,6 +78,7 @@ export class AiController {
   }
 
   @Post("ventilate-subchapters/:chapterWid")
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({
     summary:
@@ -106,6 +110,7 @@ export class AiController {
   }
 
   @Post("modify")
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
   @ApiOperation({
     summary: "Modifier un texte selectionne dans un chapitre",
   })
@@ -125,6 +130,7 @@ export class AiController {
   }
 
   @Post("suggest-questions")
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
   @ApiOperation({
     summary:
       "Generer des questions contextuelles pour aider la redaction d un chapitre",
@@ -137,6 +143,7 @@ export class AiController {
   }
 
   @Post("test-prompt")
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
   @ApiOperation({
     summary:
       "Tester un prompt de chapitre sans creer de specification (limite a 500 tokens)",
@@ -146,6 +153,7 @@ export class AiController {
   }
 
   @Post("evaluate-chapter")
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
   @ApiOperation({
     summary:
       "Evaluer la completude d un chapitre par rapport aux exigences du template",
@@ -158,6 +166,7 @@ export class AiController {
   }
 
   @Post("evaluate-all")
+  @Throttle({ short: { limit: 10, ttl: 60000 } })
   @ApiOperation({
     summary: "Evaluer la completude de tous les chapitres d une specification",
   })

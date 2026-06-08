@@ -1,3 +1,4 @@
+import './otel';
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module.js";
 import { ValidationPipe, Logger } from "@nestjs/common";
@@ -10,6 +11,14 @@ async function bootstrap() {
   const logger = new Logger("Bootstrap");
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
+
+  const apiKey = configService.get<string>("API_KEY");
+  if (!apiKey || apiKey.length === 0) {
+    logger.error(
+      "FATAL: API_KEY env variable is missing or empty — refusing to start",
+    );
+    process.exit(1);
+  }
 
   app.setGlobalPrefix("api");
 
