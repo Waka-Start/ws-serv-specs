@@ -30,7 +30,7 @@
     "@opentelemetry/exporter-trace-otlp-http": "^0.218.0",
     "@opentelemetry/resources": "^2.7.1",
     "@opentelemetry/sdk-node": "^0.218.0",
-    "@opentelemetry/semantic-conventions": "^1.41.1",
+    "@opentelemetry/semantic-conventions": "^1.43.0",
     "@prisma/adapter-pg": "^7.6.0",
     "@prisma/client": "^7.6.0",
     "bullmq": "^5.71.1",
