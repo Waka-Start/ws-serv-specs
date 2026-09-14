@@ -2,3 +2,6 @@ node_modules/
 dist/
 .env
 *.log
+
+# Repertoire de travail de Claude Code — etat local, jamais partage
+.claude/
