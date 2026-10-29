@@ -1,11 +1,11 @@
-# Dependency maintenance: grouped compatible updates and security fixes.
+# Alerts-only policy: automatic version-update pull requests are disabled.
 version: 2
 updates:
 - package-ecosystem: npm
   directory: "/"
   schedule:
     interval: weekly
-  open-pull-requests-limit: 2
+  open-pull-requests-limit: 0
   labels:
   - dependencies
   groups:
@@ -25,7 +25,7 @@ updates:
   schedule:
     interval: weekly
   target-branch: prod
-  open-pull-requests-limit: 2
+  open-pull-requests-limit: 0
   labels:
   - dependencies
   - security
@@ -41,7 +41,7 @@ updates:
 - package-ecosystem: docker
   schedule:
     interval: weekly
-  open-pull-requests-limit: 2
+  open-pull-requests-limit: 0
   directory: "/"
   groups:
     compatible-updates:
