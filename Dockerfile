@@ -19,6 +19,12 @@ RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" pnpm exec prism
 # =============================================================================
 FROM node:22-alpine AS production
 
+# npm/corepack/yarn ne servent pas au runtime (demarrage = node + binaires locaux) :
+# on retire leurs dependances embarquees (tar, etc.) de l'image
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+           /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+           /usr/local/bin/yarn /usr/local/bin/yarnpkg /opt/yarn-*
+
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nestjs -u 1001
 
@@ -39,4 +45,4 @@ EXPOSE 3014
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
   CMD wget -qO- http://localhost:3014/api/healthz || exit 1
 
-CMD ["sh", "-c", "npx prisma migrate deploy --config prisma/prisma.config.ts && node dist/main.js"]
+CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy --config prisma/prisma.config.ts && node dist/main.js"]
