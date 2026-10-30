@@ -1,7 +1,7 @@
 # =============================================================================
 # Build Stage
 # =============================================================================
-FROM node:22-alpine AS builder
+FROM node:25-alpine AS builder
 
 RUN corepack enable && corepack prepare pnpm@10.24.0 --activate
 
@@ -17,7 +17,7 @@ RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" pnpm exec prism
 # =============================================================================
 # Production Stage
 # =============================================================================
-FROM node:22-alpine AS production
+FROM node:25-alpine AS production
 
 # npm/corepack/yarn ne servent pas au runtime (demarrage = node + binaires locaux) :
 # on retire leurs dependances embarquees (tar, etc.) de l'image
