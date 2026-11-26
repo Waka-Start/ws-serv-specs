@@ -14,6 +14,10 @@ RUN pnpm install --frozen-lockfile --shamefully-hoist
 COPY . .
 RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" pnpm exec prisma generate --config prisma/prisma.config.ts && pnpm run build
 
+# Prune dev dependencies after build (WAKABASE-122). prisma est en dependencies :
+# la CMD lance `prisma migrate deploy` au demarrage.
+RUN CI=true pnpm prune --prod
+
 # =============================================================================
 # Production Stage
 # =============================================================================

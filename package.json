@@ -39,6 +39,7 @@
     "cron": "^4.3.0",
     "helmet": "^8.1.0",
     "pg": "^8.20.0",
+    "prisma": "^7.10.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"
   },
@@ -60,7 +61,6 @@
     "globals": "^17.6.0",
     "jest": "^30.3.0",
     "prettier": "^3.8.3",
-    "prisma": "^7.10.1",
     "source-map-support": "^0.5.21",
     "ts-jest": "^29.4.15",
     "ts-loader": "^9.5.4",
